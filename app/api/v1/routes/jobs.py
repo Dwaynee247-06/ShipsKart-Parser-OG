@@ -26,7 +26,7 @@ from app.core.exceptions import (
 from app.models.job_store import job_store
 from app.schemas.job import JobStatusResponse, JobSubmitResponse
 from app.services.files import save_upload, write_json
-from app.services.parsers.excel import extract_workbook
+from app.services.parsers.excel import parse_excel as parse_excel_file
 from app.utils.time import utc_now
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -71,16 +71,16 @@ async def parse_excel(
 
     try:
         await save_upload(file, upload_path)
-        grouped = extract_workbook(upload_path)
-        payload = {k: v.model_dump() for k, v in grouped.items()}
-        write_json(result_path, payload)
+        file_bytes = upload_path.read_bytes()
+        parsed = parse_excel_file(file_bytes)
+        write_json(result_path, parsed)
 
-        total_rows = sum(v.total_rows for v in grouped.values())
+        total_rows = sum(len(s["rows"]) for s in parsed.values())
         job_store.update(
             db, job_id,
             status="completed",
             completed_at=utc_now(),
-            groups=len(grouped),
+            groups=len(parsed),
             total_rows=total_rows,
         )
     except Exception as exc:
@@ -138,3 +138,27 @@ async def get_result(job_id: str, db: Session = Depends(get_db)) -> FileResponse
         media_type="application/json",
         filename=f"result_{job_id}.json",
     )
+
+@router.post(
+    "/parse/direct",
+    summary="Upload & instantly get parsed JSON",
+)
+async def parse_excel_direct(
+    file: UploadFile = File(..., description="Excel workbook (.xlsx / .xlsm)"),
+) -> dict:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided.")
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in settings.allowed_extensions:
+        raise UnsupportedFileTypeError()
+
+    try:
+        file_bytes = await file.read()
+        parsed = parse_excel_file(file_bytes)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Parsing failed: {exc}") from exc
+    finally:
+        await file.close()
+
+    return parsed
