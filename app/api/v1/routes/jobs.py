@@ -1,7 +1,8 @@
 """
 Jobs router
 -----------
-POST   /jobs/parse              Upload an Excel file and parse it
+POST   /jobs/parse              Upload an Excel file and parse it (saves to DB)
+POST   /jobs/parse/direct       Upload & instantly get parsed JSON (no DB)
 GET    /jobs                    List all jobs (paginated)
 GET    /jobs/{job_id}           Get job status
 GET    /jobs/{job_id}/result    Download the JSON result
@@ -32,11 +33,38 @@ from app.utils.time import utc_now
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
+# NOTE: /parse/direct MUST be registered before /parse to avoid FastAPI
+# routing POST /jobs/parse/direct into the /{job_id} dynamic segment.
+@router.post(
+    "/parse/direct",
+    summary="Upload & instantly get parsed JSON (no DB, no job tracking)",
+)
+async def parse_excel_direct(
+    file: UploadFile = File(..., description="Excel workbook (.xlsx / .xlsm)"),
+) -> dict:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided.")
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in settings.allowed_extensions:
+        raise UnsupportedFileTypeError()
+
+    try:
+        file_bytes = await file.read()
+        parsed = parse_excel_file(file_bytes)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Parsing failed: {exc}") from exc
+    finally:
+        await file.close()
+
+    return parsed
+
+
 @router.post(
     "/parse",
     response_model=JobSubmitResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Upload & parse an Excel file",
+    summary="Upload & parse an Excel file (saves job to DB)",
 )
 async def parse_excel(
     file: UploadFile = File(..., description="Excel workbook (.xlsx / .xlsm)"),
@@ -138,27 +166,3 @@ async def get_result(job_id: str, db: Session = Depends(get_db)) -> FileResponse
         media_type="application/json",
         filename=f"result_{job_id}.json",
     )
-
-@router.post(
-    "/parse/direct",
-    summary="Upload & instantly get parsed JSON",
-)
-async def parse_excel_direct(
-    file: UploadFile = File(..., description="Excel workbook (.xlsx / .xlsm)"),
-) -> dict:
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No filename provided.")
-
-    ext = Path(file.filename).suffix.lower()
-    if ext not in settings.allowed_extensions:
-        raise UnsupportedFileTypeError()
-
-    try:
-        file_bytes = await file.read()
-        parsed = parse_excel_file(file_bytes)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Parsing failed: {exc}") from exc
-    finally:
-        await file.close()
-
-    return parsed
