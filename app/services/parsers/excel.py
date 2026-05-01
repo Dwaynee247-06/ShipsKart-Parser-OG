@@ -1,4 +1,3 @@
-
 import re
 from io import BytesIO
 from openpyxl import load_workbook
@@ -46,7 +45,7 @@ HEADER_ALIASES = {
     "vat": "gst",
 
     "amount": "amount",
-    "amt" : "amount",
+    "amt": "amount",
     "total": "amount",
     "total price": "amount",
     "total amount": "amount",
@@ -84,10 +83,18 @@ HEADER_ALIASES = {
     "last supplied": "last_supplied_date_qty",
     "last 3 months consumptions": "last_3_months_consumptions",
 
+    # Document metadata keys
     "ref request no": "ref_request_no",
+    "ref. request no": "ref_request_no",
+    "ref request no.": "ref_request_no",
     "vessel": "vessel",
     "department": "department",
+    "dept": "department",
     "port": "port",
+    "date": "date",
+    "ordered by": "ordered_by",
+    "approved by": "approved_by",
+    "equipment": "equipment",
 }
 
 EXPECTED_HEADERS = {
@@ -103,7 +110,7 @@ def _normalize_header(value):
         return ""
     text = str(value).strip().lower()
     text = text.replace("\n", " ")
-    text = re.sub(r"[\/\\\-]+", " ", text)
+    text = re.sub(r"[\/\\\-:]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     if text in HEADER_ALIASES:
         return HEADER_ALIASES[text]
@@ -137,7 +144,8 @@ def _find_best_header_row(ws, max_scan_rows=40):
             best_row_idx = row_idx
             best_headers = headers
 
-    if best_row_idx is None or best_score < 3:
+    # Lowered threshold to 2 so tables with fewer known headers are still detected
+    if best_row_idx is None or best_score < 2:
         return None, None
 
     return best_row_idx, best_headers
@@ -152,12 +160,22 @@ def _is_section_heading(item):
 
 
 def _extract_metadata_above(ws, header_row_idx):
+    """
+    Extract document-level metadata from rows above the header row.
+    Handles both simple 2-cell rows (key, value) and multi-column
+    rows with multiple key-value pairs (k1, v1, k2, v2, ...).
+    """
     metadata = {}
     for row in ws.iter_rows(min_row=1, max_row=header_row_idx - 1, values_only=True):
         values = [v for v in row if v not in (None, "")]
-        if len(values) == 2:
-            key = _normalize_header(values[0])
-            metadata[key] = _cell_value(values[1])
+        if len(values) < 2:
+            continue
+        # Pair up values as (key, value) across the row
+        pairs = list(zip(values[::2], values[1::2]))
+        for k, v in pairs:
+            key = _normalize_header(k)
+            if key:
+                metadata[key] = _cell_value(v)
     return metadata
 
 
