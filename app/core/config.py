@@ -10,13 +10,17 @@ RESULT_DIR = DATA_DIR / "results"
 
 class Settings(BaseSettings):
     # App
-    app_name: str = "Excel Parser API"
-    app_version: str = "1.0.0"
+    app_name: str = "ShipsKart Parser API"
+    app_version: str = "1.1.0"
     api_v1_prefix: str = "/api/v1"
     debug: bool = False
 
-    # Excel
-    allowed_extensions: Tuple[str, ...] = (".xlsx", ".xlsm", ".xltx", ".xltm")
+    # Supported file types (Excel, Word, PDF)
+    allowed_extensions: Tuple[str, ...] = (
+        ".xlsx", ".xlsm", ".xltx", ".xltm",  # Excel
+        ".docx", ".doc",                        # Word
+        ".pdf",                                  # PDF
+    )
     blank_row_tolerance: int = 1
     min_headers: int = 2
 
