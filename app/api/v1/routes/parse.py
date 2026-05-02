@@ -29,13 +29,16 @@ router = APIRouter(tags=["Parse"])
     "/parse/match",
     summary="Upload a file, parse it, and match every item against the Product DB",
     description=(
-        "Upload an Excel or PDF document. "
+        "Upload an Excel, Word, or PDF document. "
         "Every line item is parsed and matched against the Product master database. "
         "Returns the structured rows **plus** the top-N matches (with score %) for each item."
     ),
 )
 async def parse_and_match(
-    file: UploadFile = File(..., description="Excel (.xlsx / .xlsm) or PDF (.pdf)"),
+    file: UploadFile = File(
+        ...,
+        description="Excel (.xlsx / .xlsm), Word (.docx / .doc), or PDF (.pdf)",
+    ),
     top_n: int = Query(5, ge=1, le=20, description="Number of top matches to return per item"),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -56,13 +59,11 @@ async def parse_and_match(
                     {
                       "rank": 1,
                       "score_pct": 97.5,
-                      "skrt_code": "PROVIN001150",
+                      "product_id": 1,
                       "product_name": "Chicken Dressed Broiler",
                       "category": "Non-Veg",
                       "brand": "Generic",
-                      "unit": "Kg",
-                      "gst_pct": 0.0,
-                      "remarks": "Chicken Whole - Halal"
+                      "unit": "Kg"
                     },
                     ... (up to top_n)
                   ]
