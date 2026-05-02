@@ -3,23 +3,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.routes.health import router as health_router
 from app.api.v1.routes.jobs import router as parse_router
+from app.api.v1.routes.match import router as match_router
 from app.core.config import settings
 from app.core.logging import configure_logging
 
 configure_logging(debug=settings.debug)
 
 app = FastAPI(
-    title="Excel Parser API",
-    version="1.0.0",
-    description="Upload an Excel file and get parsed tabular JSON directly.",
+    title="ShipsKart Parser API",
+    version="1.1.0",
+    description="Upload an Excel or PDF file to parse it and match items against the Product master DB.",
     docs_url="/docs",
     redoc_url="/redoc",
 )
 
-# NOTE: allow_credentials=True is incompatible with allow_origins=["*"].
-# Browsers reject credentialed requests when the origin is a wildcard.
-# Use allow_credentials=False for open APIs, or replace "*" with specific
-# origins if you need cookie/auth header support.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,4 +26,5 @@ app.add_middleware(
 )
 
 app.include_router(health_router, prefix=settings.api_v1_prefix)
-app.include_router(parse_router, prefix=settings.api_v1_prefix)
+app.include_router(parse_router,  prefix=settings.api_v1_prefix)
+app.include_router(match_router,  prefix=settings.api_v1_prefix)
