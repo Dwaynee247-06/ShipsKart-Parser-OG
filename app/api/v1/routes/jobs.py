@@ -1,11 +1,13 @@
 """
 Jobs router
 -----------
-POST   /jobs/parse              Upload an Excel file and parse it (saves to DB)
 POST   /jobs/parse/direct       Upload & instantly get parsed JSON (no DB)
+POST   /jobs/parse              Upload & parse a file (saves job to DB)
 GET    /jobs                    List all jobs (paginated)
 GET    /jobs/{job_id}           Get job status
 GET    /jobs/{job_id}/result    Download the JSON result
+
+Supported file types: .xlsx, .xlsm, .xltx, .xltm, .docx, .doc, .pdf
 """
 from __future__ import annotations
 
@@ -27,20 +29,20 @@ from app.core.exceptions import (
 from app.models.job_store import job_store
 from app.schemas.job import JobStatusResponse, JobSubmitResponse
 from app.services.files import save_upload, write_json
-from app.services.parsers.excel import parse_excel as parse_excel_file
+from app.services.parsers import dispatch_parser
 from app.utils.time import utc_now
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
-# NOTE: /parse/direct MUST be registered before /parse to avoid FastAPI
-# routing POST /jobs/parse/direct into the /{job_id} dynamic segment.
+# NOTE: /parse/direct MUST stay above /parse so FastAPI doesn't shadow it
+# with the /{job_id} dynamic route segment.
 @router.post(
     "/parse/direct",
     summary="Upload & instantly get parsed JSON (no DB, no job tracking)",
 )
-async def parse_excel_direct(
-    file: UploadFile = File(..., description="Excel workbook (.xlsx / .xlsm)"),
+async def parse_direct(
+    file: UploadFile = File(..., description="Excel (.xlsx/.xlsm), Word (.docx), or PDF (.pdf)"),
 ) -> dict:
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided.")
@@ -51,7 +53,7 @@ async def parse_excel_direct(
 
     try:
         file_bytes = await file.read()
-        parsed = parse_excel_file(file_bytes)
+        parsed = dispatch_parser(file_bytes, ext)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Parsing failed: {exc}") from exc
     finally:
@@ -64,10 +66,10 @@ async def parse_excel_direct(
     "/parse",
     response_model=JobSubmitResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Upload & parse an Excel file (saves job to DB)",
+    summary="Upload & parse a file (saves job to DB)",
 )
-async def parse_excel(
-    file: UploadFile = File(..., description="Excel workbook (.xlsx / .xlsm)"),
+async def parse_file(
+    file: UploadFile = File(..., description="Excel (.xlsx/.xlsm), Word (.docx), or PDF (.pdf)"),
     db: Session = Depends(get_db),
 ) -> JobSubmitResponse:
     if not file.filename:
@@ -100,7 +102,7 @@ async def parse_excel(
     try:
         await save_upload(file, upload_path)
         file_bytes = upload_path.read_bytes()
-        parsed = parse_excel_file(file_bytes)
+        parsed = dispatch_parser(file_bytes, ext)
         write_json(result_path, parsed)
 
         total_rows = sum(len(s["rows"]) for s in parsed.values())
