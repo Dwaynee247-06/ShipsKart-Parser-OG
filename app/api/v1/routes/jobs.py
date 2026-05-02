@@ -1,3 +1,1 @@
-# This file is intentionally kept as a re-export shim for backwards compatibility.
-# All logic has been consolidated into parse.py.
-from app.api.v1.routes.parse import router  # noqa: F401
+# Job tracking has been removed. This file is kept as an empty placeholder.
