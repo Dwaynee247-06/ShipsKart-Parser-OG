@@ -5,7 +5,11 @@ class UnsupportedFileTypeError(HTTPException):
     def __init__(self) -> None:
         super().__init__(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Only Excel Open XML files (.xlsx, .xlsm, .xltx, .xltm) are supported.",
+            detail=(
+                "Unsupported file type. "
+                "Accepted formats: Excel (.xlsx, .xlsm, .xltx, .xltm), "
+                "Word (.docx, .doc), PDF (.pdf)."
+            ),
         )
 
 
