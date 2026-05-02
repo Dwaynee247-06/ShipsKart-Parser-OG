@@ -1,11 +1,10 @@
 """
 SQLAlchemy ORM models for the product master database.
-Mirrors the tables created by the SSMS SQL script:
-  Category, Brand, Product
+Tables: Category, Brand, Product
 """
 from __future__ import annotations
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -35,14 +34,11 @@ class Product(Base):
     __tablename__ = "Product"
 
     ProductID: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    SkrtCode: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
     ProductName: Mapped[str] = mapped_column(String(200), nullable=False)
     CategoryID: Mapped[int] = mapped_column(Integer, ForeignKey("Category.CategoryID"), nullable=False)
     BrandID: Mapped[int] = mapped_column(Integer, ForeignKey("Brand.BrandID"), nullable=False)
     UnitOfMeasure: Mapped[str] = mapped_column(String(20), nullable=False)
-    GSTPercent: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=0.00)
     IsActive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    Remarks: Mapped[str | None] = mapped_column(String(300), nullable=True)
     CreatedAt: Mapped[str | None] = mapped_column(DateTime, server_default=func.now())
 
     category: Mapped["Category"] = relationship("Category", back_populates="products")
