@@ -3,15 +3,23 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9
 
-# Data
+# Excel parsing
 openpyxl>=3.1.0
+
+# Word parsing
+python-docx>=1.1.0
+
+# PDF parsing
+pdfplumber>=0.11.0
+
+# Fast JSON serialization
 orjson>=3.10.0
 
 # Validation
 pydantic>=2.7.0
 pydantic-settings>=2.3.0
 
-# Database (SQL Server / SSMS)
+# Database (SQL Server via SSMS)
 sqlalchemy>=2.0.0
 pyodbc>=5.1.0
 
