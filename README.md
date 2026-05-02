@@ -1,222 +1,284 @@
-# Excel Parser API
+# ShipsKart Parser API
 
-A production-ready FastAPI service that:
-- Accepts Excel file uploads (`.xlsx`, `.xlsm`)
-- Scans **every sheet** for **multiple table blocks**
-- Normalizes headers (e.g. `Sr No` → `sr_no`, `Unit of measurement` → `unit_of_measurement`)
-- Preserves **blank cells as `null`** in JSON
-- Groups tables sharing the same header signature into `requirements1`, `requirements2`, ...
-- Stores all job metadata in **Microsoft SQL Server** (managed via SSMS)
-- Fast JSON output via `orjson`
-- Designed for future extension with PDF, DOCX, and Image parsers
+FastAPI service to parse provision / requisition documents (Excel, Word, PDF) and match each line item against a product master database.
+
+---
+
+## Features
+
+- Upload **Excel** (`.xlsx`, `.xlsm`), **Word** (`.docx`, `.doc`), or **PDF** files.
+- Auto-detect and parse tabular data (SR. NO., ITEMS, UNIT, QTY, etc.).
+- Normalize multi-page PDFs into a single logical table.
+- Fuzzy-match each item name against the Product master table.
+- Return top **N** product matches per row with a similarity score.
+- Simple API surface — just two endpoints:
+  - `GET  /api/v1/health`
+  - `POST /api/v1/parse/match`
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| API | FastAPI |
+| PDF Parsing | pdfplumber |
+| Excel Parsing | openpyxl |
+| Word Parsing | python-docx |
+| Database / ORM | SQL Server + SQLAlchemy |
+| Fuzzy Matching | rapidfuzz |
+
+---
+
+## API Overview
+
+### Health Check
+
+**GET** `/api/v1/health`
+
+Returns a simple status response:
+
+```json
+{
+  "status": "ok",
+  "service": "ShipsKart Parser API",
+  "version": "1.1.0",
+  "timestamp": "2026-05-02T06:20:00Z"
+}
+```
+
+### Parse & Match
+
+**POST** `/api/v1/parse/match`
+
+**Request:**
+- Content-Type: `multipart/form-data`
+- Field: `file` — Excel (`.xlsx` / `.xlsm`), Word (`.docx` / `.doc`), or PDF (`.pdf`)
+- Query param: `top_n` *(optional, default `5`)* — number of best matches per item
+
+**Example using `curl`:**
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/parse/match?top_n=5" \
+  -F "file=@OWNER-SHEET-APJ-SHIRIN-PROVISION-QUOTATION-MUNDRA.xlsx"
+```
+
+**Response shape:**
+
+```json
+{
+  "tables": {
+    "table_1": {
+      "document_info": {},
+      "headers": ["sr_no", "items", "unit", "qty", "category", "rate", "gst", "amount"],
+      "rows": [
+        {
+          "sr_no": "1",
+          "items": "Chicken Dressed Broiler",
+          "unit": "Kg",
+          "qty": "100",
+          "category": "NON-VEG",
+          "rate": "276.00",
+          "gst": "0",
+          "amount": "27600.00",
+          "matches": [
+            {
+              "rank": 1,
+              "score_pct": 98.5,
+              "product_id": 1,
+              "product_name": "Chicken Dressed Broiler",
+              "category": "Non-Veg",
+              "brand": "Generic",
+              "unit": "Kg"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "summary": {
+    "total_items": 50,
+    "matched_above_80": 46,
+    "matched_above_50": 3,
+    "unmatched": 1
+  }
+}
+```
+
+Interactive docs: **http://localhost:8000/docs** | **http://localhost:8000/redoc**
 
 ---
 
 ## Project Structure
 
-```
-excel_parser_final/
-├── app/
-│   ├── api/
-│   │   ├── deps.py                  # DB dependency injection
-│   │   └── v1/routes/
-│   │       ├── health.py            # GET /health
-│   │       └── jobs.py              # POST /jobs/parse, GET /jobs, GET /jobs/{id}, GET /jobs/{id}/result
-│   ├── core/
-│   │   ├── config.py                # All settings (env-driven)
-│   │   ├── exceptions.py            # Custom HTTP exceptions
-│   │   └── logging.py               # Logging setup
-│   ├── db/
-│   │   ├── base.py                  # SQLAlchemy DeclarativeBase
-│   │   ├── init_db.py               # create_tables() on startup
-│   │   └── session.py               # Engine + SessionLocal
-│   ├── models/
-│   │   ├── job.py                   # ParseJob SQLAlchemy model (parse_jobs table)
-│   │   └── job_store.py             # Repository: create/get/update/list
-│   ├── schemas/
-│   │   └── job.py                   # Pydantic schemas for API I/O and parser output
-│   ├── services/
-│   │   ├── files.py                 # Upload saving, JSON writing
-│   │   └── parsers/
-│   │       └── excel.py             # Core Excel parser (multi-sheet, multi-table, grouping)
-│   ├── utils/
-│   │   └── time.py                  # UTC timestamp helper
-│   ├── tests/
-│   │   ├── test_parser.py           # Unit tests for parser logic
-│   │   └── test_health.py           # Smoke test for API health endpoint
-│   └── main.py                      # FastAPI app factory
-├── alembic/                         # Database migrations
-│   ├── env.py
-│   ├── script.py.mako
-│   └── versions/                    # Migration scripts go here
-├── alembic.ini
-├── data/
-│   ├── uploads/                     # Uploaded Excel files (gitignored)
-│   └── results/                     # Generated JSON results (gitignored)
-├── scripts/
-│   └── create_sample_excel.py       # Generate a test workbook
-├── requirements.txt
-├── .env.example
-├── .gitignore
-└── README.md
+```text
+app/
+  main.py                        # FastAPI app, router registration
+  api/
+    deps.py                      # get_db() dependency
+    v1/
+      routes/
+        health.py                # GET /health
+        parse.py                 # POST /parse/match
+  core/
+    config.py                    # Settings (API prefix, allowed extensions, DB URL)
+    exceptions.py                # UnsupportedFileTypeError and other custom exceptions
+    logging.py                   # Logging configuration
+  db/
+    base.py                      # SQLAlchemy declarative Base
+    session.py                   # Engine + SessionLocal
+  models/
+    product.py                   # Category, Brand, Product ORM models
+  schemas/
+    job.py                       # Pydantic response models (HealthResponse, etc.)
+  services/
+    files.py                     # File save/read helpers
+    matcher.py                   # Fuzzy matching against Product table
+    parsers/
+      __init__.py                # dispatch_parser() — routes by extension
+      excel.py                   # Excel parsing logic (openpyxl)
+      pdf.py                     # PDF parsing + multi-page stitching (pdfplumber)
+      word.py                    # Word parsing logic (python-docx)
+      _shared.py                 # Shared helpers (build_table_from_rows, clean_cell)
+  utils/
+    time.py                      # utc_now()
 ```
 
 ---
 
-## Prerequisites
+## Database Schema
 
-1. **Python 3.11+**
-2. **SQL Server** running locally or on a network server (managed via SSMS)
-3. **Microsoft ODBC Driver 18 for SQL Server** installed on the machine running the API
-   - Windows: https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server
-   - Create the database first: `CREATE DATABASE ExcelParserDB;`
+This service expects a **product master database** with three tables: `Category`, `Brand`, and `Product`.
 
----
+### Category
 
-## Setup & Run
-
-```bash
-# 1. Clone / extract the project
-cd excel_parser_final
-
-# 2. Create virtual environment
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate 
-#gitbash: python -m venv .venv
-source .venv/Scripts/activate
-
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Configure environment
-cp .env.example .env
-# Edit .env and set your DATABASE_URL
-
-# 5. Start the API
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-The `parse_jobs` table is created automatically in SQL Server on first startup.
-
----
-
-## API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/health` | Health check |
-| POST | `/api/v1/jobs/parse` | Upload & parse an Excel file |
-| GET | `/api/v1/jobs` | List all jobs (paginated) |
-| GET | `/api/v1/jobs/{job_id}` | Get job status |
-| GET | `/api/v1/jobs/{job_id}/result` | Download JSON result |
-
-Interactive docs: **http://localhost:8000/docs**
-
----
-
-## Example Usage
-
-```bash
-# Upload an Excel file
-curl -X POST "http://localhost:8000/api/v1/jobs/parse" \
-  -F "file=@sample_input.xlsx"
-
-# Check status
-curl "http://localhost:8000/api/v1/jobs/<job_id>"
-
-# Download result
-curl -L "http://localhost:8000/api/v1/jobs/<job_id>/result" -o result.json
-```
-
----
-
-## Sample JSON Output
-
-```json
-{
-  "requirements1": {
-    "requirement_name": "requirements1",
-    "headers": ["sr_no", "product_name", "unit_of_measurement", "quantity", "remarks"],
-    "header_signature": "sr_no|product_name|unit_of_measurement|quantity|remarks",
-    "total_rows": 8,
-    "tables": [
-      {
-        "sheet_name": "Sheet1",
-        "table_id": "Sheet1__block_1_abc123",
-        "source_range": "A1:E7",
-        "headers": ["sr_no", "product_name", "unit_of_measurement", "quantity", "remarks"],
-        "rows": [
-          { "sr_no": 1, "product_name": "Cement", "unit_of_measurement": "KG", "quantity": 100, "remarks": null },
-          { "sr_no": 2, "product_name": "Sand",   "unit_of_measurement": "LTR", "quantity": 200, "remarks": "Course sand" }
-        ]
-      },
-      {
-        "sheet_name": "Sheet2",
-        "table_id": "Sheet2__block_1_def456",
-        "source_range": "A1:E3",
-        "rows": [
-          { "sr_no": 5, "product_name": "Steel Rods", "unit_of_measurement": "KG", "quantity": 500, "remarks": "12mm dia" },
-          { "sr_no": 6, "product_name": "Bricks", "unit_of_measurement": "Units", "quantity": 1000, "remarks": null }
-        ]
-      }
-    ]
-  },
-  "requirements2": {
-    "requirement_name": "requirements2",
-    "headers": ["id", "vendor_name", "contact", "city"],
-    "tables": [...]
-  }
-}
-```
-
----
-
-## Run Tests
-
-```bash
-pytest app/tests/ -v
-```
-
----
-
-## Generate Sample Excel for Testing
-
-```bash
-python scripts/create_sample_excel.py
-# Creates: sample_input.xlsx
-```
-
----
-
-## Database (SQL Server / SSMS)
-
-The API auto-creates a `parse_jobs` table with:
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | INT (PK) | Auto-increment |
-| job_id | VARCHAR(64) | UUID, indexed |
-| status | VARCHAR(32) | processing / completed / failed |
-| filename | VARCHAR(255) | Original uploaded filename |
-| created_at | VARCHAR(64) | ISO UTC timestamp |
-| completed_at | VARCHAR(64) | ISO UTC timestamp |
-| error | TEXT | Error message if failed |
-| result_file | VARCHAR(255) | JSON result filename |
-| groups | INT | Number of grouped requirements |
-| total_rows | INT | Total rows parsed |
-
-View records in SSMS:
 ```sql
-SELECT * FROM ExcelParserDB.dbo.parse_jobs ORDER BY id DESC;
+CREATE TABLE Category (
+  CategoryID   INT           PRIMARY KEY IDENTITY,
+  CategoryName NVARCHAR(100) NOT NULL UNIQUE,
+  Description  NVARCHAR(255) NULL
+);
+```
+
+### Brand
+
+```sql
+CREATE TABLE Brand (
+  BrandID   INT           PRIMARY KEY IDENTITY,
+  BrandName NVARCHAR(150) NOT NULL UNIQUE,
+  Notes     NVARCHAR(255) NULL
+);
+```
+
+### Product
+
+```sql
+CREATE TABLE Product (
+  ProductID     INT           PRIMARY KEY IDENTITY,
+  ProductName   NVARCHAR(200) NOT NULL,
+  CategoryID    INT           NOT NULL REFERENCES Category(CategoryID),
+  BrandID       INT           NOT NULL REFERENCES Brand(BrandID),
+  UnitOfMeasure NVARCHAR(20)  NOT NULL,
+  IsActive      BIT           NOT NULL DEFAULT 1,
+  CreatedAt     DATETIME      NOT NULL DEFAULT GETDATE()
+);
+```
+
+Populate `Category`, `Brand`, and `Product` from the owner sheet or another master source before running the service.
+
+---
+
+## Matching Logic
+
+Located in `app/services/matcher.py`.
+
+For each parsed row:
+
+1. Take the `items` field (fallback to `description` if present).
+2. Compare it against every active `ProductName` in the DB using:
+   - `token_set_ratio(query, product_name)` — word-order tolerant
+   - `partial_ratio(query, product_name)` — handles substrings / aliases
+   - `score = 0.7 × token_set_ratio + 0.3 × partial_ratio`
+3. Sort products by `score` descending.
+4. Return the top `top_n` products as `matches[]`.
+
+The `summary` block in the response counts:
+
+| Bucket | Condition |
+|---|---|
+| `matched_above_80` | Best match score ≥ 80% |
+| `matched_above_50` | Best match score ≥ 50% and < 80% |
+| `unmatched` | Best match score < 50% |
+
+---
+
+## Running Locally
+
+### Prerequisites
+
+- Python 3.10+
+- SQL Server instance (local or network)
+- Microsoft ODBC Driver 17 or 18 for SQL Server
+
+### Setup
+
+```bash
+git clone https://github.com/Dwaynee247-06/ShipsKart-Parser-OG.git
+cd ShipsKart-Parser-OG
+
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+pip install -r requirements.txt
+```
+
+Configure your `.env` file:
+
+```env
+DATABASE_URL=mssql+pyodbc://USER:PASSWORD@SERVER/ShipsKartDB?driver=ODBC+Driver+17+for+SQL+Server
+API_V1_PREFIX=/api/v1
+APP_NAME=ShipsKart Parser API
+APP_VERSION=1.1.0
+```
+
+### Start the server
+
+```bash
+uvicorn app.main:app --reload
 ```
 
 ---
 
-## Future Extensions (Not in scope yet)
-- PDF parser
-- DOCX parser
-- Image/OCR parser
-- Celery + Redis for async background jobs
-- S3 / Azure Blob for file storage
-- Auth and role-based access
-- Alembic migration scripts
+## Testing the Parser
+
+Sample test files are available to use directly:
+
+| File | Format | Use |
+|---|---|---|
+| `test_provision_sample.xlsx` | Excel | Smaller replica of the owner sheet |
+| `test_provision_sample.docx` | Word | Same data in `.docx` table format |
+
+1. Run the app and open Swagger: `http://localhost:8000/docs`
+2. Go to `POST /api/v1/parse/match`
+3. Upload one of the test files
+4. Inspect `tables[table_1].rows[].matches[]` and `score_pct` values
+
+You can also test with scanned / multi-page PDFs — the `pdf.py` parser stitches multiple pages into one logical table.
+
+---
+
+## Future Improvements
+
+- Add authentication (API keys / JWT) for production.
+- Support configurable match thresholds (e.g., flag items with score < 60%).
+- Add admin endpoints to manage `Product`, `Brand`, and `Category` directly via the API.
+- Add unit tests for parsers and matcher using `pytest`.
+- Add pagination / filtering for large tables.
+- OCR support for scanned PDFs (e.g., via Tesseract).
+
+---
+
+## Notes
+
+- The old job-based endpoints (`/jobs`, `/jobs/{id}`, `/jobs/{id}/result`) were intentionally removed to keep the API minimal for this use case.
+- If required in the future, job tracking can be re-enabled using the existing `ParseJob` model and `job_store` repository.
