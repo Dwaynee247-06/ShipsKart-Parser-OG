@@ -277,8 +277,3 @@ You can also test with scanned / multi-page PDFs — the `pdf.py` parser stitche
 - OCR support for scanned PDFs (e.g., via Tesseract).
 
 ---
-
-## Notes
-
-- The old job-based endpoints (`/jobs`, `/jobs/{id}`, `/jobs/{id}/result`) were intentionally removed to keep the API minimal for this use case.
-- If required in the future, job tracking can be re-enabled using the existing `ParseJob` model and `job_store` repository.
