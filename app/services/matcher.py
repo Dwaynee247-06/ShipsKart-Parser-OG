@@ -4,9 +4,11 @@ matcher.py
 Fuzzy product-matching service.
 
 Matches a parsed item name against the Product master table using:
-  1. token_set_ratio  (word-order tolerant) via rapidfuzz
-  2. partial_ratio    (substring / alias match) via rapidfuzz
+  1. Alias expansion  — Hindi / regional names are mapped to English equivalents
+  2. token_set_ratio  (word-order tolerant) via rapidfuzz
+  3. partial_ratio    (substring / alias match) via rapidfuzz
   Combined score = 0.7 * token_set_ratio + 0.3 * partial_ratio
+  Final score    = max(score_on_original, score_on_alias)
 
 requirements: rapidfuzz
 """
@@ -20,20 +22,184 @@ from sqlalchemy.orm import Session
 from app.models.product import Product
 
 
+# ---------------------------------------------------------------------------
+# Alias dictionary  —  Hindi / Marathi / regional → English
+# Keys are the regional/alternate names (lower-case).
+# Values are the English product names as they appear in the Product master.
+# Add more entries here as new aliases are discovered.
+# ---------------------------------------------------------------------------
+ALIAS_MAP: dict[str, str] = {
+    # Fruits
+    "limbu":          "lemon",
+    "nimbu":          "lemon",
+    "nimboo":         "lemon",
+    "sour lime":      "lemon",
+    "malta":          "mandarin orange",
+    "santara":        "mandarin orange",
+    "kela":           "banana",
+    "kele":           "banana",
+    "seb":            "apple",
+    "angoor":         "grapes",
+    "aam":            "mango",
+    "papita":         "papaya",
+    "ananas":         "pineapple",
+    "tarbuj":         "watermelon",
+    "tarbooz":        "watermelon",
+    "kharbooja":      "sweet melon",
+    "anar":           "pomegranate",
+    "amrood":         "guava",
+    "nashpati":       "pear",
+    "chikoo":         "sapodilla",
+    # Vegetables
+    "aloo":           "potatoes",
+    "aaloo":          "potatoes",
+    "pyaz":           "onion",
+    "pyaaz":          "onion",
+    "tamatar":        "tomatoes",
+    "tamater":        "tomatoes",
+    "baingan":        "egg plant",
+    "brinjal":        "egg plant",
+    "gobhi":          "cauliflower",
+    "phool gobhi":    "cauliflower",
+    "patta gobhi":    "cabbage",
+    "band gobhi":     "cabbage",
+    "gajar":          "carrot",
+    "palak":          "spinach",
+    "methi":          "fenugreek leaves",
+    "dhaniya":        "coriander leaves",
+    "dhania":         "coriander leaves",
+    "pudina":         "mint leaves",
+    "bhindi":         "lady finger",
+    "okra":           "lady finger",
+    "shimla mirch":   "capsicum",
+    "mirch":          "green hot peppers",
+    "hari mirch":     "green hot peppers",
+    "adrak":          "ginger",
+    "lehsun":         "garlic",
+    "lahasun":        "garlic",
+    "matar":          "green peas",
+    "hara matar":     "green peas",
+    "hari matar":     "green peas",
+    "kaddu":          "pumpkin",
+    "lauki":          "bottle gourd",
+    "turai":          "ridge gourd",
+    "karela":         "bittergourd",
+    "sem":            "broad beans",
+    "sem fali":       "broad beans",
+    "lobia":          "black eyed peas",
+    "kathal":         "jackfruit",
+    "khira":          "cucumber",
+    "kheera":         "cucumber",
+    "mooli":          "radish",
+    "arbi":           "taro",
+    "shakarkand":     "sweet potato",
+    "suran":          "yam",
+    "zucchini":       "marrow",
+    # Meat / Seafood
+    "murgi":          "chicken",
+    "murg":           "chicken",
+    "gosht":          "mutton",
+    "bakra":          "mutton",
+    "maachli":        "fish",
+    "machli":         "fish",
+    "machhli":        "fish",
+    "jhinga":         "prawns",
+    "chingri":        "prawns",
+    "anda":           "eggs",
+    "ande":           "eggs",
+    # Dairy
+    "doodh":          "milk",
+    "dahi":           "yoghurt",
+    "curd":           "yoghurt",
+    "paneer":         "cottage cheese",
+    "makhan":         "butter",
+    "ghee":           "clarified butter",
+    # Dry goods / spices
+    "chawal":         "rice",
+    "atta":           "wheat flour",
+    "maida":          "refined flour",
+    "besan":          "gram flour",
+    "dal":            "lentils",
+    "chana dal":      "split chickpeas",
+    "moong dal":      "moong lentils",
+    "masoor dal":     "red lentils",
+    "haldi":          "turmeric",
+    "turmeric":       "turmeric powder",
+    "jeera":          "cumin",
+    "zeera":          "cumin",
+    "dhaniya powder": "coriander powder",
+    "kali mirch":     "black pepper",
+    "dalchini":       "cinnamon",
+    "laung":          "cloves",
+    "elaichi":        "cardamom",
+    "jaiphal":        "nutmeg",
+    "saunf":          "fennel seeds",
+    "rai":            "mustard seeds",
+    "sarson":         "mustard seeds",
+    "til":            "sesame seeds",
+    "namak":          "salt",
+    "cheeni":         "sugar",
+    "shakkar":        "sugar",
+    "tel":            "oil",
+    "sarson ka tel":  "mustard oil",
+    "sirka":          "vinegar",
+    "imli":           "tamarind",
+    "kaju":           "cashews",
+    "badam":          "almonds",
+    "akhrot":         "walnuts",
+    "kishmish":       "raisins",
+    "pista":          "pistachios",
+}
+
+
 def _normalize(text: str | None) -> str:
     if not text:
         return ""
     return " ".join(str(text).lower().split())
 
 
+def _resolve_alias(text: str) -> str:
+    """
+    If the normalized text (or any token within it) matches an alias,
+    return the English equivalent. Otherwise return the original text.
+
+    Checks:
+      1. Exact full-string match in ALIAS_MAP
+      2. Any single alias key found as a substring in the query
+    """
+    norm = _normalize(text)
+    # 1. Exact match
+    if norm in ALIAS_MAP:
+        return ALIAS_MAP[norm]
+    # 2. Substring match — longest key wins (avoids "dal" beating "moong dal")
+    best_key = ""
+    for key in ALIAS_MAP:
+        if key in norm and len(key) > len(best_key):
+            best_key = key
+    if best_key:
+        return ALIAS_MAP[best_key]
+    return text
+
+
 def _score(query: str, candidate: str) -> float:
-    q = _normalize(query)
-    c = _normalize(candidate)
-    if not q or not c:
+    """
+    Composite fuzzy score (0-100).
+    Runs on both the original query AND its alias-resolved form,
+    returns the higher of the two scores.
+    """
+    q_orig  = _normalize(query)
+    q_alias = _normalize(_resolve_alias(query))
+    c       = _normalize(candidate)
+
+    if not c:
         return 0.0
-    token_set = fuzz.token_set_ratio(q, c)
-    partial   = fuzz.partial_ratio(q, c)
-    return round(0.7 * token_set + 0.3 * partial, 2)
+
+    def _raw(q: str) -> float:
+        if not q:
+            return 0.0
+        return round(0.7 * fuzz.token_set_ratio(q, c) + 0.3 * fuzz.partial_ratio(q, c), 2)
+
+    return max(_raw(q_orig), _raw(q_alias))
 
 
 def match_item(
