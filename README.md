@@ -1,6 +1,6 @@
 # ShipsKart Parser API
 
-FastAPI service to parse provision / requisition documents (Excel, Word, PDF) and match each line item against a product master database.
+> FastAPI service that parses maritime provision/requisition documents (Excel, Word, PDF) and fuzzy-matches every line item against a product master database — with full support for Hindi, Marathi, and regional-language item names.
 
 ---
 
@@ -9,7 +9,8 @@ FastAPI service to parse provision / requisition documents (Excel, Word, PDF) an
 - Upload **Excel** (`.xlsx`, `.xlsm`), **Word** (`.docx`, `.doc`), or **PDF** files.
 - Auto-detect and parse tabular data (SR. NO., ITEMS, UNIT, QTY, etc.).
 - Normalize multi-page PDFs into a single logical table.
-- Fuzzy-match each item name against the Product master table.
+- **Regional-language alias resolution** — Hindi/Marathi item names (e.g. `limbu`, `nimbu`, `aloo`, `gosht`) are transparently mapped to their English equivalents before matching.
+- Fuzzy-match each item name against the Product master table using a weighted `rapidfuzz` scorer.
 - Return top **N** product matches per row with a similarity score.
 - Simple API surface — just two endpoints:
   - `GET  /api/v1/health`
@@ -27,6 +28,7 @@ FastAPI service to parse provision / requisition documents (Excel, Word, PDF) an
 | Word Parsing | python-docx |
 | Database / ORM | SQL Server + SQLAlchemy |
 | Fuzzy Matching | rapidfuzz |
+| Migrations | Alembic |
 
 ---
 
@@ -43,7 +45,7 @@ Returns a simple status response:
   "status": "ok",
   "service": "ShipsKart Parser API",
   "version": "1.1.0",
-  "timestamp": "2026-05-02T06:20:00Z"
+  "timestamp": "2026-05-05T06:00:00Z"
 }
 ```
 
@@ -109,6 +111,58 @@ Interactive docs: **http://localhost:8000/docs** | **http://localhost:8000/redoc
 
 ---
 
+## Matching Logic
+
+Located in `app/services/matcher.py`.
+
+For each parsed row the matcher runs in **two passes** and picks the higher score:
+
+1. **Pass 1 — Raw name**: score the item name as-is.
+2. **Pass 2 — Alias-resolved name**: run `_resolve_alias()` to translate regional/Hindi names to English, then score again.
+
+Each pass computes:
+
+```
+score = 0.7 × token_set_ratio + 0.3 × partial_ratio
+```
+
+- `token_set_ratio` — word-order tolerant ("Broiler Dressed Chicken" still matches "Chicken Dressed Broiler")
+- `partial_ratio` — handles substrings and partial names
+
+**Example — alias resolution in action:**
+
+```
+"Nimbu"  →  _resolve_alias()  →  "lemon"
+score("Nimbu",  "Lemon") = 40%   ← fuzzy alone fails
+score("lemon",  "Lemon") = 100%  ← alias wins ✅
+```
+
+### ALIAS_MAP — Regional Name Dictionary
+
+`matcher.py` ships with 100+ Hindi/Marathi/regional → English mappings:
+
+| Category | Examples |
+|---|---|
+| Fruits | `limbu / nimbu → lemon`, `malta → mandarin orange`, `kela → banana`, `tarbuj → watermelon`, `aam → mango` |
+| Vegetables | `aloo → potatoes`, `pyaz → onion`, `baingan → eggplant`, `bhindi → lady finger`, `lauki → bottle gourd`, `palak → spinach` |
+| Meat / Seafood | `murgi → chicken`, `gosht → mutton`, `machli → fish`, `jhinga → prawns`, `anda → eggs` |
+| Dairy | `doodh → milk`, `dahi → yoghurt`, `paneer → cottage cheese`, `makkhan → butter` |
+| Dry Goods / Spices | `haldi → turmeric`, `jeera → cumin`, `chawal → rice`, `atta → wheat flour`, `dal → lentils` |
+
+To add more aliases, append to `ALIAS_MAP` in `matcher.py` — no other code changes needed.
+
+### Score Buckets
+
+The `summary` block in the response classifies every item:
+
+| Bucket | Condition |
+|---|---|
+| `matched_above_80` | Best match score ≥ 80% |
+| `matched_above_50` | Best match score ≥ 50% and < 80% |
+| `unmatched` | Best match score < 50% |
+
+---
+
 ## Project Structure
 
 ```text
@@ -133,7 +187,7 @@ app/
     job.py                       # Pydantic response models (HealthResponse, etc.)
   services/
     files.py                     # File save/read helpers
-    matcher.py                   # Fuzzy matching against Product table
+    matcher.py                   # Fuzzy matching engine + ALIAS_MAP
     parsers/
       __init__.py                # dispatch_parser() — routes by extension
       excel.py                   # Excel parsing logic (openpyxl)
@@ -142,6 +196,10 @@ app/
       _shared.py                 # Shared helpers (build_table_from_rows, clean_cell)
   utils/
     time.py                      # utc_now()
+alembic/                         # DB migration scripts
+scripts/                         # Utility / seed scripts
+requirements.txt
+alembic.ini
 ```
 
 ---
@@ -188,30 +246,6 @@ Populate `Category`, `Brand`, and `Product` from the owner sheet or another mast
 
 ---
 
-## Matching Logic
-
-Located in `app/services/matcher.py`.
-
-For each parsed row:
-
-1. Take the `items` field (fallback to `description` if present).
-2. Compare it against every active `ProductName` in the DB using:
-   - `token_set_ratio(query, product_name)` — word-order tolerant
-   - `partial_ratio(query, product_name)` — handles substrings / aliases
-   - `score = 0.7 × token_set_ratio + 0.3 × partial_ratio`
-3. Sort products by `score` descending.
-4. Return the top `top_n` products as `matches[]`.
-
-The `summary` block in the response counts:
-
-| Bucket | Condition |
-|---|---|
-| `matched_above_80` | Best match score ≥ 80% |
-| `matched_above_50` | Best match score ≥ 50% and < 80% |
-| `unmatched` | Best match score < 50% |
-
----
-
 ## Running Locally
 
 ### Prerequisites
@@ -251,7 +285,7 @@ uvicorn app.main:app --reload
 
 ## Testing the Parser
 
-Sample test files are available to use directly:
+Sample test files can be used directly:
 
 | File | Format | Use |
 |---|---|---|
@@ -275,5 +309,6 @@ You can also test with scanned / multi-page PDFs — the `pdf.py` parser stitche
 - Add unit tests for parsers and matcher using `pytest`.
 - Add pagination / filtering for large tables.
 - OCR support for scanned PDFs (e.g., via Tesseract).
+- Expand `ALIAS_MAP` with more regional languages (Gujarati, Tamil, Bengali).
 
 ---
