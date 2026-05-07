@@ -26,7 +26,11 @@ pyodbc>=5.1.0
 # Migrations
 alembic>=1.13.0
 
+# Fuzzy / phonetic product matching
+rapidfuzz>=3.9.0
+jellyfish>=1.0.0
+scikit-learn>=1.4.0
+
 # Dev / Testing
 pytest>=8.0.0
 httpx>=0.27.0
-scikit-learn-1.8.0
