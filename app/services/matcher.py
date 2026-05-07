@@ -26,8 +26,8 @@ from typing import Any
 from rapidfuzz import fuzz
 from sqlalchemy.orm import Session
 
-from app.models.product import Product
-from app.services.matching import ProductMatcher, Product, normalize, resolve_alias
+from app.models.product import Product as DbProduct
+from app.services.matching import ProductMatcher, Product as MatcherProduct
 
 
 # ---------------------------------------------------------------------------
@@ -205,9 +205,9 @@ def match_item_legacy(
     item_name: str,
     top_n: int = 5,
 ) -> list[dict[str, Any]]:
-    all_products: list[Product] = (
-        db.query(Product)
-        .filter(Product.IsActive == True)  # noqa: E712
+    all_products: list[DbProduct] = (
+        db.query(DbProduct)
+        .filter(DbProduct.IsActive == True)  # noqa: E712
         .all()
     )
 
@@ -286,13 +286,13 @@ def _build_product_matcher(
     use_tfidf: bool,
     use_inverted_index: bool,
 ) -> ProductMatcher:
-    db_products: list[Product] = (
-        db.query(Product)
-        .filter(Product.IsActive == True)  # noqa: E712
+    db_products: list[DbProduct] = (
+        db.query(DbProduct)
+        .filter(DbProduct.IsActive == True)  # noqa: E712
         .all()
     )
 
-    pm_products = [Product(id=p.ProductID, name=p.ProductName) for p in db_products]
+    pm_products = [MatcherProduct(id=p.ProductID, name=p.ProductName) for p in db_products]
 
     matcher = ProductMatcher(
         products=pm_products,
@@ -318,9 +318,9 @@ def match_item_advanced(
         prod = entry["product"]
         score = entry["score"]
 
-        db_product: Product = (
-            db.query(Product)
-            .filter(Product.ProductID == prod.id)
+        db_product: DbProduct = (
+            db.query(DbProduct)
+            .filter(DbProduct.ProductID == prod.id)
             .first()
         )
 
