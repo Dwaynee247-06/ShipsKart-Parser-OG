@@ -123,8 +123,8 @@ HEADER_ALIASES: dict[str, str] = {
 #
 # Each frozenset contains known VALUES (not headers) that strongly identify
 # a column type when the header itself is unrecognised.
-# The check is: if ≥ 50% of non-empty values in a column hit this set,
-# that column is inferred as the canonical field.
+# The check is: if ≥ _SIGNATURE_THRESHOLD of non-empty values in a column
+# hit this set, that column is inferred as the canonical field.
 #
 # Priority order (most specific first) matters — see infer_columns_from_values().
 # ---------------------------------------------------------------------------
@@ -184,9 +184,6 @@ _CATEGORY_VALUES: frozenset[str] = frozenset({
     "oil", "oils",
 })
 
-# SR number column: small integers 1,2,3... or strings like "1.", "2."
-# (detected differently — see _looks_like_sr_no_column)
-
 # Combine into a priority-ordered list of (frozenset, canonical_field)
 # Most specific / least ambiguous first.
 COLUMN_VALUE_SIGNATURES: list[tuple[frozenset[str], str]] = [
@@ -195,7 +192,7 @@ COLUMN_VALUE_SIGNATURES: list[tuple[frozenset[str], str]] = [
 ]
 
 # Minimum fraction of non-empty column values that must match the signature
-_SIGNATURE_THRESHOLD: float = 0.50   # 50 %
+_SIGNATURE_THRESHOLD: float = 0.70   # 70 %
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +279,6 @@ def _looks_like_sr_no_column(values: list[str]) -> bool:
     numeric = [int(c) for c in cleaned if c.isdigit()]
     if len(numeric) < max(2, len(values) * 0.6):
         return False
-    # Must start at 1 (or close) and be mostly sequential
     numeric.sort()
     return numeric[0] <= 3 and numeric[-1] <= len(values) + 5
 
@@ -320,12 +316,9 @@ def infer_columns_from_values(
     if not data_rows:
         return header_index_map
 
-    # Build a quick col_index → list-of-values lookup from raw rows
-    # header_index_map: canonical_name → col_index
     index_to_key: dict[int, str] = {v: k for k, v in header_index_map.items()}
     num_cols = max(header_index_map.values()) + 1 if header_index_map else 0
 
-    # Pre-extract per-column values from raw data rows
     col_raw: dict[int, list[str]] = {}
     for col_idx in range(num_cols):
         vals = []
@@ -341,7 +334,6 @@ def infer_columns_from_values(
 
     for col_idx, values in col_raw.items():
         current_key = index_to_key.get(col_idx, "")
-        # Skip columns already mapped to a known canonical field
         if current_key in EXPECTED_ITEM_HEADERS:
             continue
         if not values:
@@ -369,7 +361,6 @@ def infer_columns_from_values(
                 inferred = "quantity"
 
         if inferred:
-            # Remove the old unknown key and remap the column index
             if current_key and current_key in updated:
                 del updated[current_key]
             updated[inferred] = col_idx
@@ -465,7 +456,6 @@ def build_table_from_rows(
     if best_idx is None:
         return None
 
-    # Build header → column-index map (first occurrence wins)
     header_index_map: dict[str, int] = {}
     for idx, h in enumerate(best_headers):
         if h and h not in header_index_map:
@@ -474,7 +464,6 @@ def build_table_from_rows(
     doc_info = _extract_metadata(raw_rows[:best_idx])
 
     # ── Value-fingerprint inference ────────────────────────────────────────
-    # Pass the raw data rows (below header) so we can inspect actual values
     raw_data_rows = raw_rows[best_idx + 1:]
     header_index_map = infer_columns_from_values(header_index_map, raw_data_rows)
 
