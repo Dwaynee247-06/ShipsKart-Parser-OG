@@ -71,6 +71,17 @@ const selections={};
 submitBtn.addEventListener('click',async()=>{
   if(!selectedFile) return;
   const topN=parseInt(document.getElementById('top-n').value)||3;
+  const advanced=document.getElementById('advanced-toggle').checked;
+  const useLev=document.getElementById('use-levenshtein').checked;
+  const useTfidf=document.getElementById('use-tfidf').checked;
+  const useInv=document.getElementById('use-inverted-index').checked;
+
+  const params=new URLSearchParams({top_n:String(topN)});
+  params.set('advanced',String(advanced));
+  params.set('use_levenshtein',String(useLev));
+  params.set('use_tfidf',String(useTfidf));
+  params.set('use_inverted_index',String(useInv));
+
   submitBtn.disabled=true; hideStatus();
   document.getElementById('summary-section').classList.add('hidden');
   document.getElementById('results-section').classList.add('hidden');
@@ -78,7 +89,7 @@ submitBtn.addEventListener('click',async()=>{
   const form=new FormData();
   form.append('file',selectedFile);
   try{
-    const res=await fetch(`${getBase()}/api/v1/parse/match?top_n=${topN}`,{method:'POST',body:form});
+    const res=await fetch(`${getBase()}/api/v1/parse/match?${params.toString()}`,{method:'POST',body:form});
     const data=await res.json();
     if(!res.ok) throw new Error(data.detail||'Server error '+res.status);
     lastResponse=data;
@@ -226,43 +237,23 @@ function refreshRowUI(gidx){
   const div=document.querySelector(`.item-row[data-gidx="${gidx}"]`);
   if(!div) return;
   const wasOpen=div.classList.contains('open');
-  // Replace div with freshly rendered version
-  const tmp=document.createElement('div');
-  // reuse renderRows on a single-item array temporarily
-  const savedContainer=document.getElementById('results-container');
-  const tmpContainer=document.createElement('div');
-  tmpContainer.id='results-container';
-  tmpContainer.style.display='none';
-  document.body.appendChild(tmpContainer);
-  const realContainer=savedContainer;
-  // swap
-  document.getElementById('results-container');
-  // instead: just re-render the inner content directly
   const best=row.matches&&row.matches.length?row.matches[0].score_pct:0;
-  const cls=scoreClass(best);
   const currentSel=selections[gidx];
   const selName=currentSel?currentSel.product_name:null;
-  const selLabel=selName
-    ?`<span class="item-sel-tag">\u2713 ${selName}</span>`
-    :`<span class="item-sel-tag item-sel-tag--none">No selection</span>`;
-  // Update header sel tag
   const selTagEl=div.querySelector('.item-sel-tag');
   if(selTagEl){
     selTagEl.textContent=selName?('\u2713 '+selName):'No selection';
     selTagEl.className='item-sel-tag'+(selName?'':' item-sel-tag--none');
   }
-  // Update option cards
   div.querySelectorAll('.match-option').forEach(card=>{
     const isSel=currentSel&&parseInt(card.dataset.pid)===currentSel.product_id;
     card.classList.toggle('selected',isSel);
     card.querySelector('.match-option-radio').textContent=isSel?'\u2022':'';
   });
-  // restore open state
   if(wasOpen){
     div.classList.add('open');
     div.querySelectorAll('.sk-collapsible').forEach(el=>el.style.display='');
   }
-  tmpContainer.remove();
 }
 
 function toggleRow(header){
@@ -279,7 +270,6 @@ document.getElementById('auto-select-btn').addEventListener('click',()=>{
       if(best.score_pct>=80) selections[idx]=best;
     }
   });
-  // refresh all visible rows
   document.querySelectorAll('.item-row').forEach(div=>{
     const gidx=parseInt(div.dataset.gidx);
     if(!isNaN(gidx)) refreshRowUI(gidx);
