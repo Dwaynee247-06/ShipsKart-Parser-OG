@@ -8,6 +8,7 @@ Do NOT import parser-specific libraries here.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -117,7 +118,89 @@ HEADER_ALIASES: dict[str, str] = {
     "equipment": "equipment",
 }
 
-# Fields that signal a row is an item row (used for scoring & primary-key check)
+# ---------------------------------------------------------------------------
+# Value-fingerprint signatures  →  canonical field name
+#
+# Each frozenset contains known VALUES (not headers) that strongly identify
+# a column type when the header itself is unrecognised.
+# The check is: if ≥ 50% of non-empty values in a column hit this set,
+# that column is inferred as the canonical field.
+#
+# Priority order (most specific first) matters — see infer_columns_from_values().
+# ---------------------------------------------------------------------------
+
+# Unit-of-measurement: physical units that appear as cell values
+_UOM_VALUES: frozenset[str] = frozenset({
+    # Weight
+    "kg", "kgs", "kilogram", "kilograms",
+    "g", "gm", "gms", "gram", "grams",
+    "mg", "milligram", "milligrams",
+    "lb", "lbs", "pound", "pounds",
+    "oz", "ounce", "ounces",
+    "ton", "tons", "tonne", "tonnes", "mt",
+    # Volume
+    "l", "ltr", "ltrs", "litre", "litres", "liter", "liters",
+    "ml", "millilitre", "millilitres", "milliliter", "milliliters",
+    "cl", "dl",
+    "gal", "gallon", "gallons",
+    "fl oz",
+    # Count / packs
+    "pcs", "pc", "piece", "pieces",
+    "nos", "no", "number",
+    "pkt", "pkts", "packet", "packets",
+    "box", "boxes",
+    "ctn", "carton", "cartons",
+    "bag", "bags",
+    "tin", "tins",
+    "btl", "btls", "bottle", "bottles",
+    "can", "cans",
+    "roll", "rolls",
+    "set", "sets",
+    "pair", "pairs",
+    "dozen", "doz",
+    "bundle", "bundles",
+    "tray", "trays",
+    "each", "ea",
+    # Length / area
+    "m", "mtr", "mtrs", "metre", "metres", "meter", "meters",
+    "cm", "mm",
+    "ft", "feet", "foot",
+    "inch", "inches",
+    "sqm", "sqft",
+})
+
+# Category: provision category labels used in maritime docs
+_CATEGORY_VALUES: frozenset[str] = frozenset({
+    "veg", "non-veg", "nonveg", "non veg",
+    "dry", "dry store", "dry stores",
+    "frozen", "fresh", "chilled",
+    "dairy", "dairy products",
+    "beverages", "beverage",
+    "cleaning", "cleaning material", "cleaning materials",
+    "deck", "engine", "cabin", "galley",
+    "provisions", "provision",
+    "fruits", "vegetables", "meat", "seafood", "poultry",
+    "bakery", "bread", "cereals", "spices", "condiments",
+    "oil", "oils",
+})
+
+# SR number column: small integers 1,2,3... or strings like "1.", "2."
+# (detected differently — see _looks_like_sr_no_column)
+
+# Combine into a priority-ordered list of (frozenset, canonical_field)
+# Most specific / least ambiguous first.
+COLUMN_VALUE_SIGNATURES: list[tuple[frozenset[str], str]] = [
+    (_UOM_VALUES,      "unit_of_measurement"),
+    (_CATEGORY_VALUES, "category"),
+]
+
+# Minimum fraction of non-empty column values that must match the signature
+_SIGNATURE_THRESHOLD: float = 0.50   # 50 %
+
+
+# ---------------------------------------------------------------------------
+# Fields that signal a row is an item row
+# ---------------------------------------------------------------------------
 EXPECTED_ITEM_HEADERS: frozenset[str] = frozenset({
     "sr_no", "items", "unit_of_measurement", "quantity", "category",
     "skrt_code", "rate", "gst", "amount", "remarks", "part_no_impa_code",
@@ -125,10 +208,8 @@ EXPECTED_ITEM_HEADERS: frozenset[str] = frozenset({
     "vessel_remarks",
 })
 
-# At least one of these must be present for a row to count as a data row
 PRIMARY_ITEM_KEYS: frozenset[str] = frozenset({"items", "part_no_impa_code", "sr_no"})
 
-# Keywords that identify a grand-total footer row (case-insensitive)
 _TOTAL_ROW_KEYWORDS: tuple[str, ...] = (
     "total (inr)",
     "grand total",
@@ -175,11 +256,133 @@ def score_header_row(row_values: list[Any]) -> tuple[int, list[str]]:
     return score, normalized
 
 
+# ---------------------------------------------------------------------------
+# Value-fingerprint inference
+# ---------------------------------------------------------------------------
+
+def _column_values(data_rows: list[dict[str, Any]], col_key: str) -> list[str]:
+    """Return lowercased, stripped non-empty string values for one column."""
+    out = []
+    for row in data_rows:
+        v = row.get(col_key)
+        if v is not None and str(v).strip():
+            out.append(str(v).strip().lower())
+    return out
+
+
+def _looks_like_sr_no_column(values: list[str]) -> bool:
+    """
+    True if the column looks like a serial-number column:
+    values are small positive integers (possibly with trailing dots/brackets)
+    and they increment sequentially starting near 1.
+    """
+    if not values:
+        return False
+    cleaned = [re.sub(r"[^\d]", "", v) for v in values]
+    numeric = [int(c) for c in cleaned if c.isdigit()]
+    if len(numeric) < max(2, len(values) * 0.6):
+        return False
+    # Must start at 1 (or close) and be mostly sequential
+    numeric.sort()
+    return numeric[0] <= 3 and numeric[-1] <= len(values) + 5
+
+
+def _looks_like_quantity_column(values: list[str]) -> bool:
+    """
+    True if the column is purely numeric (integers or decimals)
+    and values are in a realistic quantity range (0.01 – 100,000).
+    """
+    if not values:
+        return False
+    numeric = []
+    for v in values:
+        try:
+            numeric.append(float(v.replace(",", "")))
+        except ValueError:
+            return False   # any non-numeric kills it
+    if not numeric:
+        return False
+    return all(0.01 <= n <= 100_000 for n in numeric)
+
+
+def infer_columns_from_values(
+    header_index_map: dict[str, int],
+    data_rows: list[list[Any]],
+) -> dict[str, int]:
+    """
+    Look at each column that was NOT recognised by header name (i.e. its
+    canonical key is not in EXPECTED_ITEM_HEADERS) and try to infer the
+    correct canonical field from the actual cell values underneath it.
+
+    Returns an updated copy of header_index_map with inferred remappings.
+    Already-recognised columns are never overwritten.
+    """
+    if not data_rows:
+        return header_index_map
+
+    # Build a quick col_index → list-of-values lookup from raw rows
+    # header_index_map: canonical_name → col_index
+    index_to_key: dict[int, str] = {v: k for k, v in header_index_map.items()}
+    num_cols = max(header_index_map.values()) + 1 if header_index_map else 0
+
+    # Pre-extract per-column values from raw data rows
+    col_raw: dict[int, list[str]] = {}
+    for col_idx in range(num_cols):
+        vals = []
+        for row in data_rows:
+            if col_idx < len(row):
+                v = row[col_idx]
+                if v is not None and str(v).strip():
+                    vals.append(str(v).strip().lower())
+        col_raw[col_idx] = vals
+
+    already_claimed: set[str] = set(header_index_map.keys()) & EXPECTED_ITEM_HEADERS
+    updated = dict(header_index_map)
+
+    for col_idx, values in col_raw.items():
+        current_key = index_to_key.get(col_idx, "")
+        # Skip columns already mapped to a known canonical field
+        if current_key in EXPECTED_ITEM_HEADERS:
+            continue
+        if not values:
+            continue
+
+        inferred: str | None = None
+
+        # ── 1. Value-signature check (UOM, category, …) ──────────────────
+        for sig_set, canonical in COLUMN_VALUE_SIGNATURES:
+            if canonical in already_claimed:
+                continue
+            hits = sum(1 for v in values if v in sig_set)
+            if hits / len(values) >= _SIGNATURE_THRESHOLD:
+                inferred = canonical
+                break
+
+        # ── 2. SR-number column ───────────────────────────────────────────
+        if inferred is None and "sr_no" not in already_claimed:
+            if _looks_like_sr_no_column(values):
+                inferred = "sr_no"
+
+        # ── 3. Pure-numeric → quantity (only if quantity not yet claimed) ─
+        if inferred is None and "quantity" not in already_claimed:
+            if _looks_like_quantity_column(values):
+                inferred = "quantity"
+
+        if inferred:
+            # Remove the old unknown key and remap the column index
+            if current_key and current_key in updated:
+                del updated[current_key]
+            updated[inferred] = col_idx
+            already_claimed.add(inferred)
+
+    return updated
+
+
+# ---------------------------------------------------------------------------
+# Row-level helpers
+# ---------------------------------------------------------------------------
+
 def is_section_heading(item: dict[str, Any]) -> bool:
-    """
-    Return True if an item row contains only a single ALL-CAPS value
-    (e.g. section labels like 'FUEL OIL INJECTION PUMP').
-    """
     filled = [v for v in item.values() if v not in (None, "")]
     if len(filled) == 1:
         only_value = str(filled[0]).strip()
@@ -188,50 +391,28 @@ def is_section_heading(item: dict[str, Any]) -> bool:
 
 
 def is_valid_item_row(item: dict[str, Any]) -> bool:
-    """Return True if the row has at least one primary item key filled."""
     return any(item.get(k) for k in PRIMARY_ITEM_KEYS)
 
 
 def is_total_row(item: dict[str, Any]) -> bool:
-    """
-    Return True if this row is a grand-total footer row and should NOT be
-    treated as a regular item.
-
-    Detection rules (any one is sufficient):
-      1. The 'items' field matches a known total-row keyword (e.g. "TOTAL (INR)").
-      2. 'sr_no' is empty/None AND 'items' contains the word "total".
-    """
     items_raw = str(item.get("items") or "").strip()
     items_lower = items_raw.lower()
-
-    # Rule 1 – exact keyword match
     for kw in _TOTAL_ROW_KEYWORDS:
         if items_lower == kw:
             return True
-
-    # Rule 2 – no sr_no AND "total" appears anywhere in the items cell
     sr = item.get("sr_no")
     if not sr and "total" in items_lower:
         return True
-
     return False
 
 
 def extract_total_amount(item: dict[str, Any]) -> float | None:
-    """
-    Pull the numeric total amount out of a detected total row.
-    Tries the 'amount' field first, then any numeric field in the row.
-    Returns None if no numeric value is found.
-    """
-    # Prefer the mapped 'amount' column
     raw = item.get("amount")
     if raw is not None:
         try:
             return float(raw)
         except (TypeError, ValueError):
             pass
-
-    # Fallback: scan all values for a large numeric
     for v in item.values():
         if v is None:
             continue
@@ -241,7 +422,6 @@ def extract_total_amount(item: dict[str, Any]) -> float | None:
                 return f
         except (TypeError, ValueError):
             continue
-
     return None
 
 
@@ -260,7 +440,8 @@ def build_table_from_rows(
     and return a structured dict with document_info, headers, rows,
     and an optional total_amount field.
 
-    Returns None if no valid header row is found.
+    After header detection, any unrecognised columns are re-examined using
+    value-fingerprint inference (infer_columns_from_values).
     """
     best_idx = None
     best_score = 0
@@ -275,7 +456,6 @@ def build_table_from_rows(
             best_headers = headers
 
     if best_idx is None or best_score < min_header_score:
-        # Fallback: first non-empty row
         for i, row in enumerate(raw_rows):
             if any(v not in (None, "") for v in row):
                 best_idx = i
@@ -291,25 +471,27 @@ def build_table_from_rows(
         if h and h not in header_index_map:
             header_index_map[h] = idx
 
-    # Extract metadata from rows above the header
     doc_info = _extract_metadata(raw_rows[:best_idx])
 
-    # Extract data rows below the header
+    # ── Value-fingerprint inference ────────────────────────────────────────
+    # Pass the raw data rows (below header) so we can inspect actual values
+    raw_data_rows = raw_rows[best_idx + 1:]
+    header_index_map = infer_columns_from_values(header_index_map, raw_data_rows)
+
+    # ── Extract structured data rows ───────────────────────────────────────
     data_rows: list[dict[str, Any]] = []
     total_amount: float | None = None
 
-    for row in raw_rows[best_idx + 1:]:
+    for row in raw_data_rows:
         if not any(v not in (None, "") for v in row):
-            continue   # skip fully blank rows
+            continue
 
         item = {
             header: clean_cell(row[idx] if idx < len(row) else None)
             for header, idx in header_index_map.items()
         }
 
-        # ── Total row detection ────────────────────────────────────────────
         if is_total_row(item):
-            # Extract the amount value and skip adding to data_rows
             extracted = extract_total_amount(item)
             if extracted is not None:
                 total_amount = extracted
@@ -331,10 +513,6 @@ def build_table_from_rows(
 
 
 def _extract_metadata(rows: list[list[Any]]) -> dict[str, Any]:
-    """
-    Extract document-level key-value pairs from rows above the header.
-    Handles both 2-cell (key, value) and multi-column (k1,v1,k2,v2,...) rows.
-    """
     metadata: dict[str, Any] = {}
     for row in rows:
         values = [v for v in row if v not in (None, "")]
