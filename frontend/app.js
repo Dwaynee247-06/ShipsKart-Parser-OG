@@ -80,7 +80,14 @@ submitBtn.addEventListener('click',async()=>{
     if(!res.ok) throw new Error(data.detail||'Server error '+res.status);
     lastResponse=data;
     setStatus(`Done! ${data.summary.total_items} items parsed and matched.`,'success');
-    renderSummary(data.summary);
+    // Collect total_amount across all tables (sum if multiple tables)
+    let totalAmount=null;
+    for(const tableData of Object.values(data.tables||{})){
+      if(tableData.total_amount!=null){
+        totalAmount=(totalAmount||0)+tableData.total_amount;
+      }
+    }
+    renderSummary(data.summary, totalAmount);
     renderResults(data.tables);
   } catch(err){
     setStatus('Error: '+err.message,'error');
@@ -90,7 +97,18 @@ submitBtn.addEventListener('click',async()=>{
 });
 
 // ── summary
-function renderSummary(s){
+function renderSummary(s, totalAmount){
+  const fmtAmount=(v)=>{
+    if(v==null) return null;
+    return new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(v);
+  };
+  const amountFormatted=fmtAmount(totalAmount);
+  const amountTile=amountFormatted
+    ?`<div class="summary-tile tile--amount">
+        <div class="value amount-value">${amountFormatted}</div>
+        <div class="label">Total Amount (INR)</div>
+      </div>`
+    :'';
   document.getElementById('summary-grid').innerHTML=`
     <div class="summary-tile tile--total">
       <div class="value">${s.total_items}</div><div class="label">Total Items</div></div>
@@ -99,7 +117,8 @@ function renderSummary(s){
     <div class="summary-tile tile--partial">
       <div class="value">${s.matched_above_50}</div><div class="label">50\u201379% Match</div></div>
     <div class="summary-tile tile--fail">
-      <div class="value">${s.unmatched}</div><div class="label">Unmatched</div></div>`;
+      <div class="value">${s.unmatched}</div><div class="label">Unmatched</div></div>
+    ${amountTile}`;
   document.getElementById('summary-section').classList.remove('hidden');
 }
 
