@@ -40,6 +40,25 @@ async def parse_and_match(
         description="Excel (.xlsx / .xlsm), Word (.docx / .doc), or PDF (.pdf)",
     ),
     top_n: int = Query(5, ge=1, le=20, description="Number of top matches to return per item"),
+    advanced: bool = Query(
+        False,
+        description=(
+            "Enable advanced matching (layers 4–6: Levenshtein, TF-IDF, inverted index). "
+            "When False, uses the legacy alias + fuzzy matching only."
+        ),
+    ),
+    use_levenshtein: bool = Query(
+        True,
+        description="When advanced=True, toggle Levenshtein-based typo handling (Layer 4).",
+    ),
+    use_tfidf: bool = Query(
+        True,
+        description="When advanced=True, toggle TF-IDF character n-gram matching (Layer 5).",
+    ),
+    use_inverted_index: bool = Query(
+        True,
+        description="When advanced=True, toggle inverted-index prefilter for performance (Layer 6).",
+    ),
     db: Session = Depends(get_db),
 ) -> dict:
     """
@@ -93,6 +112,14 @@ async def parse_and_match(
         await file.close()
 
     try:
-        return match_document(db, parsed, top_n=top_n)
+        return match_document(
+            db,
+            parsed,
+            top_n=top_n,
+            advanced=advanced,
+            use_levenshtein=use_levenshtein,
+            use_tfidf=use_tfidf,
+            use_inverted_index=use_inverted_index,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Matching failed: {exc}") from exc
