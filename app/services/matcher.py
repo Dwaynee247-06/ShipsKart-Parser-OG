@@ -255,6 +255,7 @@ def match_document(
 ) -> dict[str, Any]:
     """
     Enrich every parsed row with top-N product matches.
+    total_amount (if detected by the parser) is passed through unchanged.
     """
     output_tables: dict[str, Any] = {}
     total_items = 0
@@ -282,6 +283,9 @@ def match_document(
             "document_info": table_data.get("document_info", {}),
             "headers":       table_data.get("headers", []),
             "rows":          enriched_rows,
+            # Pass the grand total from the sheet through to the response.
+            # None if the parser did not find a total row.
+            "total_amount":  table_data.get("total_amount"),
         }
 
     return {
