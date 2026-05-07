@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ShipsKart Parser – Flask UI</title>
+  <style>
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { margin-bottom: .5rem; }
+    .field { margin-bottom: 1rem; }
+    label { display: block; font-weight: 600; margin-bottom: .25rem; }
+    input[type="number"], input[type="text"], input[type="file"] { width: 100%; padding: .35rem .5rem; box-sizing: border-box; }
+    small { color: #555; }
+    fieldset { border: 1px solid #ddd; padding: .75rem 1rem 1rem; border-radius: 6px; }
+    legend { padding: 0 .25rem; font-weight: 600; }
+    .checkbox-row { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: .5rem; }
+    .checkbox-row label { font-weight: 400; display: flex; align-items: center; gap: .25rem; }
+    .btn { padding: .45rem .9rem; border-radius: 4px; border: 1px solid #01696f; background:#01696f; color:#fff; cursor:pointer; font-weight:500; }
+    .btn:hover { background:#015258; }
+    .flash { padding:.5rem .75rem; border-radius:4px; margin-bottom:1rem; }
+    .flash.error { background:#ffd6d6; color:#900; border:1px solid #f5aaaa; }
+  </style>
+</head>
+<body>
+  <h1>ShipsKart Parser – Flask UI</h1>
+  <p>Upload an Excel, Word, or PDF document and match every line item against the product master.</p>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, msg in messages %}
+        <div class="flash {{ category }}">{{ msg }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <form method="post" enctype="multipart/form-data">
+    <div class="field">
+      <label for="file">Upload file</label>
+      <input type="file" id="file" name="file" accept=".xlsx,.xlsm,.docx,.doc,.pdf" required />
+    </div>
+
+    <div class="field">
+      <label for="top_n">Top N matches per item</label>
+      <input type="number" id="top_n" name="top_n" value="5" min="1" max="20" />
+    </div>
+
+    <div class="field">
+      <label for="api_base">API base URL</label>
+      <input type="text" id="api_base" name="api_base" value="{{ api_base }}" />
+      <small>FastAPI endpoint (default: http://localhost:8000)</small>
+    </div>
+
+    <fieldset class="field">
+      <legend>Advanced matching (Layers 4–6)</legend>
+      <div class="field">
+        <label>
+          <input type="checkbox" name="advanced" checked />
+          Enable advanced matching
+        </label>
+      </div>
+      <div class="checkbox-row">
+        <label>
+          <input type="checkbox" name="use_levenshtein" checked />
+          Levenshtein (typo handling)
+        </label>
+        <label>
+          <input type="checkbox" name="use_tfidf" checked />
+          TF-IDF (character n-grams)
+        </label>
+        <label>
+          <input type="checkbox" name="use_inverted_index" checked />
+          Inverted index (speed)
+        </label>
+      </div>
+    </fieldset>
+
+    <button type="submit" class="btn">Parse &amp; Match</button>
+  </form>
+</body>
+</html>
