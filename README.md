@@ -452,6 +452,12 @@ pip install -r requirements.txt
 
 ```bash
 uvicorn app.main:app --reload
+
+
+front end(flask)
+cd flask_ui
+pip install flask requests
+python app.py
 ```
 
 Swagger docs:
