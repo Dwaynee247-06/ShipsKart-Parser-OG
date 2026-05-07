@@ -1,314 +1,502 @@
-# ShipsKart Parser API
+# ShipsKart Parser OG
 
-> FastAPI service that parses maritime provision/requisition documents (Excel, Word, PDF) and fuzzy-matches every line item against a product master database — with full support for Hindi, Marathi, and regional-language item names.
-
----
-
-## Features
-
-- Upload **Excel** (`.xlsx`, `.xlsm`), **Word** (`.docx`, `.doc`), or **PDF** files.
-- Auto-detect and parse tabular data (SR. NO., ITEMS, UNIT, QTY, etc.).
-- Normalize multi-page PDFs into a single logical table.
-- **Regional-language alias resolution** — Hindi/Marathi item names (e.g. `limbu`, `nimbu`, `aloo`, `gosht`) are transparently mapped to their English equivalents before matching.
-- Fuzzy-match each item name against the Product master table using a weighted `rapidfuzz` scorer.
-- Return top **N** product matches per row with a similarity score.
-- Simple API surface — just two endpoints:
-  - `GET  /api/v1/health`
-  - `POST /api/v1/parse/match`
+A FastAPI-based parser and product-matching system for procurement documents.  
+It reads uploaded files, extracts structured item rows, and matches each item against the ShipsKart product catalog using either a legacy fuzzy matcher or an advanced layered matcher.
 
 ---
 
-## Tech Stack
+## What this project does
 
-| Layer | Technology |
-|---|---|
-| API | FastAPI |
-| PDF Parsing | pdfplumber |
-| Excel Parsing | openpyxl |
-| Word Parsing | python-docx |
-| Database / ORM | SQL Server + SQLAlchemy |
-| Fuzzy Matching | rapidfuzz |
-| Migrations | Alembic |
+This project solves two problems:
 
----
+1. **Document parsing**
+   - Reads Excel, PDF, and Word files
+   - Detects useful headers even if they are messy or unusual
+   - Extracts rows like item name, quantity, UOM, remarks, and other fields
 
-## API Overview
-
-### Health Check
-
-**GET** `/api/v1/health`
-
-Returns a simple status response:
-
-```json
-{
-  "status": "ok",
-  "service": "ShipsKart Parser API",
-  "version": "1.1.0",
-  "timestamp": "2026-05-05T06:00:00Z"
-}
-```
-
-### Parse & Match
-
-**POST** `/api/v1/parse/match`
-
-**Request:**
-- Content-Type: `multipart/form-data`
-- Field: `file` — Excel (`.xlsx` / `.xlsm`), Word (`.docx` / `.doc`), or PDF (`.pdf`)
-- Query param: `top_n` *(optional, default `5`)* — number of best matches per item
-
-**Example using `curl`:**
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/parse/match?top_n=5" \
-  -F "file=@OWNER-SHEET-APJ-SHIRIN-PROVISION-QUOTATION-MUNDRA.xlsx"
-```
-
-**Response shape:**
-
-```json
-{
-  "tables": {
-    "table_1": {
-      "document_info": {},
-      "headers": ["sr_no", "items", "unit", "qty", "category", "rate", "gst", "amount"],
-      "rows": [
-        {
-          "sr_no": "1",
-          "items": "Chicken Dressed Broiler",
-          "unit": "Kg",
-          "qty": "100",
-          "category": "NON-VEG",
-          "rate": "276.00",
-          "gst": "0",
-          "amount": "27600.00",
-          "matches": [
-            {
-              "rank": 1,
-              "score_pct": 98.5,
-              "product_id": 1,
-              "product_name": "Chicken Dressed Broiler",
-              "category": "Non-Veg",
-              "brand": "Generic",
-              "unit": "Kg"
-            }
-          ]
-        }
-      ]
-    }
-  },
-  "summary": {
-    "total_items": 50,
-    "matched_above_80": 46,
-    "matched_above_50": 3,
-    "unmatched": 1
-  }
-}
-```
-
-Interactive docs: **http://localhost:8000/docs** | **http://localhost:8000/redoc**
+2. **Product matching**
+   - Takes each parsed item
+   - Compares it against the ShipsKart catalog
+   - Returns top candidate products with scores
 
 ---
 
-## Matching Logic
+## Logic location map
 
-Located in `app/services/matcher.py`.
+This section tells you exactly **where each type of logic belongs**.
 
-For each parsed row the matcher runs in **two passes** and picks the higher score:
+### High-level responsibility split
 
-1. **Pass 1 — Raw name**: score the item name as-is.
-2. **Pass 2 — Alias-resolved name**: run `_resolve_alias()` to translate regional/Hindi names to English, then score again.
-
-Each pass computes:
-
-```
-score = 0.7 × token_set_ratio + 0.3 × partial_ratio
-```
-
-- `token_set_ratio` — word-order tolerant ("Broiler Dressed Chicken" still matches "Chicken Dressed Broiler")
-- `partial_ratio` — handles substrings and partial names
-
-**Example — alias resolution in action:**
-
-```
-"Nimbu"  →  _resolve_alias()  →  "lemon"
-score("Nimbu",  "Lemon") = 40%   ← fuzzy alone fails
-score("lemon",  "Lemon") = 100%  ← alias wins ✅
-```
-
-### ALIAS_MAP — Regional Name Dictionary
-
-`matcher.py` ships with 100+ Hindi/Marathi/regional → English mappings:
-
-| Category | Examples |
-|---|---|
-| Fruits | `limbu / nimbu → lemon`, `malta → mandarin orange`, `kela → banana`, `tarbuj → watermelon`, `aam → mango` |
-| Vegetables | `aloo → potatoes`, `pyaz → onion`, `baingan → eggplant`, `bhindi → lady finger`, `lauki → bottle gourd`, `palak → spinach` |
-| Meat / Seafood | `murgi → chicken`, `gosht → mutton`, `machli → fish`, `jhinga → prawns`, `anda → eggs` |
-| Dairy | `doodh → milk`, `dahi → yoghurt`, `paneer → cottage cheese`, `makkhan → butter` |
-| Dry Goods / Spices | `haldi → turmeric`, `jeera → cumin`, `chawal → rice`, `atta → wheat flour`, `dal → lentils` |
-
-To add more aliases, append to `ALIAS_MAP` in `matcher.py` — no other code changes needed.
-
-### Score Buckets
-
-The `summary` block in the response classifies every item:
-
-| Bucket | Condition |
-|---|---|
-| `matched_above_80` | Best match score ≥ 80% |
-| `matched_above_50` | Best match score ≥ 50% and < 80% |
-| `unmatched` | Best match score < 50% |
+| Location | Responsibility | What logic belongs here |
+|---|---|---|
+| `app/main.py` | App entrypoint | FastAPI app creation, router registration, startup wiring |
+| `app/api/` | API layer | Routes, request handling, file upload input, query params, response return |
+| `app/services/files.py` | Parsing layer | File reading, file-type detection, extraction of structured tables/rows |
+| `app/services/matcher.py` | Orchestration layer | Chooses legacy vs advanced matching, builds matcher, formats final results |
+| `app/services/matching.py` | Matching engine | Normalization, aliases, typo scoring, phonetic scoring, TF-IDF, ranking |
+| `app/models/` | Database models | SQLAlchemy table definitions like Product, Brand, Category |
+| `app/schemas/` | API contracts | Pydantic request/response models |
+| `app/db/` | Database setup | Engine, session, DB dependency injection |
+| `app/templates/` | Frontend rendering | HTML/Jinja pages for showing match results and candidate options |
+| `requirements.txt` | Dependencies | Python packages needed to run the project |
 
 ---
 
-## Project Structure
+## Exact file-level logic
+
+### `app/main.py`
+This is the project boot file.
+
+**Put here:**
+- `FastAPI()` app creation
+- middleware registration
+- router inclusion
+- startup setup
+
+**Do not put here:**
+- parsing logic
+- matching logic
+- database query business rules
+
+Think of this file as the **entry gate** only.
+
+---
+
+### `app/api/`
+This is the **HTTP layer**.
+
+**Put here:**
+- route definitions like `POST /parse/match`
+- uploaded file reading from request
+- query params such as:
+  - `advanced=true`
+  - `use_levenshtein=true`
+  - `use_tfidf=true`
+  - `use_inverted_index=true`
+  - `use_phonetic=true`
+- calling service functions
+- returning JSON or template responses
+
+**Do not put here:**
+- fuzzy score formulas
+- alias resolution rules
+- TF-IDF building
+- heavy business logic
+
+Think of `api/` as the **controller layer**.
+
+---
+
+### `app/services/files.py`
+This is the **document parsing logic layer**.
+
+**Put here:**
+- file type detection
+- Excel sheet reading
+- PDF table/text extraction
+- Word document extraction
+- header cleaning
+- row extraction
+- raw table-to-structured-data conversion
+
+**Example responsibilities:**
+- find the header row even if it is not row 1
+- normalize weird headers like `Qty Req`, `Product name`, `Purchase Reamrk`
+- convert rows into a standard internal format such as:
+  - `items`
+  - `quantity`
+  - `unit_of_measurement`
+  - `purchase_remark`
+
+Think of this file as the **document reader and cleaner**.
+
+---
+
+### `app/services/matcher.py`
+This is the **matching orchestration file**.
+
+It does not contain the deepest scoring logic.  
+Instead, it **coordinates** the matching workflow.
+
+**Put here:**
+- legacy matching wrapper
+- advanced matching wrapper
+- database product loading
+- converting DB products to matcher objects
+- calling `ProductMatcher`
+- formatting top matches into API-friendly dictionaries
+- summary counts like matched/unmatched totals
+
+**Important functions that belong here:**
+- `match_item_legacy()`
+- `match_document_legacy()`
+- `_build_product_matcher()`
+- `match_item_advanced()`
+- `match_document_advanced()`
+- `match_document()`
+
+Think of this file as the **traffic controller** between:
+- parsed rows,
+- database products,
+- matching engine,
+- final API response.
+
+---
+
+### `app/services/matching.py`
+This is the **real matching engine**.
+
+This file contains the algorithm itself.
+
+**Put here:**
+- text normalization
+- alias expansion
+- candidate filtering
+- fuzzy scoring
+- Levenshtein scoring
+- phonetic scoring
+- TF-IDF scoring
+- top-N ranking
+- threshold decisions
+- feedback cache logic
+
+**Important logic in this file:**
+
+#### 1. Normalization
+Converts text into a cleaner form:
+- lowercase
+- punctuation removed
+- spaces normalized
+
+Example:
+- `Chicken - Dressed Broiler`
+- becomes
+- `chicken dressed broiler`
+
+#### 2. Alias resolution
+Maps regional names to standard names.
+
+Examples:
+- `baingan -> egg plant`
+- `tamatar -> tomatoes`
+- `murg -> chicken`
+
+#### 3. Exact match
+If the cleaned query exactly matches a product name, return immediately.
+
+#### 4. Inverted index
+Used for fast candidate prefiltering.
+
+Example:
+- query contains `chicken`
+- fetch all products containing `chicken`
+- score only that smaller list
+
+#### 5. Typo fallback
+If the inverted index finds no candidates because the words are heavily misspelled, the system now falls back to scoring **all products**.
+
+This is what helps cases like:
+- `chiken dressed broylr`
+
+#### 6. Token fuzzy score
+Uses RapidFuzz token logic to handle:
+- word order changes
+- partial overlaps
+- token similarity
+
+#### 7. Levenshtein score
+Handles character typos.
+
+Examples:
+- `chiken` vs `chicken`
+- `broylr` vs `broiler`
+
+#### 8. Phonetic score
+Uses `jellyfish.soundex()` to compare words that sound similar even when spelled differently.
+
+This helps for words that are typed “how they sound”.
+
+#### 9. TF-IDF cosine similarity
+Builds character n-gram vectors and compares them mathematically.
+
+This helps when:
+- there are multiple typos
+- word shapes are still similar
+- token overlap is weak
+
+#### 10. Final weighted score
+Blends token score, Levenshtein, phonetic, and TF-IDF into one final score.
+
+#### 11. Match status
+Returns status like:
+- `confident`
+- `candidate`
+- `no_match`
+- `cached`
+
+#### 12. Feedback cache
+If a user confirms a match manually, the system can remember it and return it directly next time.
+
+Think of `matching.py` as the **brain of the project**.
+
+---
+
+### `app/models/`
+This contains the **database truth**.
+
+**Put here:**
+- SQLAlchemy models
+- table column definitions
+- foreign keys
+- relationships
+
+Example:
+- `Product`
+- `Brand`
+- `Category`
+
+This layer should define what the data **is**, not how matching works.
+
+---
+
+### `app/schemas/`
+This contains the **request/response shapes**.
+
+**Put here:**
+- Pydantic models for API input/output
+- validation rules
+- response formatting contracts
+
+This helps keep your API responses predictable and clean.
+
+---
+
+### `app/db/`
+This contains the **database connection plumbing**.
+
+**Put here:**
+- SQLAlchemy engine
+- sessionmaker
+- `get_db()` dependency
+- connection setup
+
+This file should not contain matching logic or parsing logic.
+
+---
+
+### `app/templates/`
+This contains the **HTML presentation layer** if you are rendering a frontend page.
+
+**Put here:**
+- results page
+- candidate list UI
+- best match card
+- interactive selection UI
+
+If the app returns pure JSON only, this layer becomes less important.  
+If the app shows browser pages, this is where UI logic belongs.
+
+---
+
+## Folder structure
 
 ```text
-app/
-  main.py                        # FastAPI app, router registration
-  api/
-    deps.py                      # get_db() dependency
-    v1/
-      routes/
-        health.py                # GET /health
-        parse.py                 # POST /parse/match
-  core/
-    config.py                    # Settings (API prefix, allowed extensions, DB URL)
-    exceptions.py                # UnsupportedFileTypeError and other custom exceptions
-    logging.py                   # Logging configuration
-  db/
-    base.py                      # SQLAlchemy declarative Base
-    session.py                   # Engine + SessionLocal
-  models/
-    product.py                   # Category, Brand, Product ORM models
-  schemas/
-    job.py                       # Pydantic response models (HealthResponse, etc.)
-  services/
-    files.py                     # File save/read helpers
-    matcher.py                   # Fuzzy matching engine + ALIAS_MAP
-    parsers/
-      __init__.py                # dispatch_parser() — routes by extension
-      excel.py                   # Excel parsing logic (openpyxl)
-      pdf.py                     # PDF parsing + multi-page stitching (pdfplumber)
-      word.py                    # Word parsing logic (python-docx)
-      _shared.py                 # Shared helpers (build_table_from_rows, clean_cell)
-  utils/
-    time.py                      # utc_now()
-alembic/                         # DB migration scripts
-scripts/                         # Utility / seed scripts
-requirements.txt
-alembic.ini
+ShipsKart-Parser-OG/
+├── app/
+│   ├── api/                  # route handlers / endpoints
+│   ├── core/                 # config and shared app settings
+│   ├── db/                   # database engine and sessions
+│   ├── models/               # SQLAlchemy models
+│   ├── schemas/              # Pydantic schemas
+│   ├── services/
+│   │   ├── files.py          # file parsing logic
+│   │   ├── matcher.py        # matching orchestrator
+│   │   └── matching.py       # core matching engine
+│   ├── templates/            # HTML/Jinja result UI
+│   └── main.py               # FastAPI entrypoint
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
-## Database Schema
+## End-to-end flow
 
-This service expects a **product master database** with three tables: `Category`, `Brand`, and `Product`.
+```mermaid
+flowchart TD
 
-### Category
+    A[Client uploads file] --> B[API route in app/api]
+    B --> C[files.py parses document]
+    C --> D[Structured parsed rows]
 
-```sql
-CREATE TABLE Category (
-  CategoryID   INT           PRIMARY KEY IDENTITY,
-  CategoryName NVARCHAR(100) NOT NULL UNIQUE,
-  Description  NVARCHAR(255) NULL
-);
+    D --> E[matcher.py]
+    E --> F{advanced mode?}
+
+    F -->|No| G[Legacy matching]
+    F -->|Yes| H[Build ProductMatcher]
+
+    H --> I[matching.py engine]
+    I --> J[Normalize text]
+    J --> K[Resolve aliases]
+    K --> L[Exact match check]
+    L --> M[Inverted index prefilter]
+    M --> N{Found candidates?}
+
+    N -->|Yes| O[Score candidate set]
+    N -->|No| P[Fallback: score all products]
+
+    O --> Q[Token fuzzy]
+    P --> Q
+    Q --> R[Levenshtein]
+    R --> S[Phonetic]
+    S --> T[TF-IDF cosine]
+    T --> U[Final weighted score]
+    U --> V[Top 5 matches]
+
+    G --> V
+    V --> W[matcher.py formats response]
+    W --> X[API JSON or template output]
 ```
-
-### Brand
-
-```sql
-CREATE TABLE Brand (
-  BrandID   INT           PRIMARY KEY IDENTITY,
-  BrandName NVARCHAR(150) NOT NULL UNIQUE,
-  Notes     NVARCHAR(255) NULL
-);
-```
-
-### Product
-
-```sql
-CREATE TABLE Product (
-  ProductID     INT           PRIMARY KEY IDENTITY,
-  ProductName   NVARCHAR(200) NOT NULL,
-  CategoryID    INT           NOT NULL REFERENCES Category(CategoryID),
-  BrandID       INT           NOT NULL REFERENCES Brand(BrandID),
-  UnitOfMeasure NVARCHAR(20)  NOT NULL,
-  IsActive      BIT           NOT NULL DEFAULT 1,
-  CreatedAt     DATETIME      NOT NULL DEFAULT GETDATE()
-);
-```
-
-Populate `Category`, `Brand`, and `Product` from the owner sheet or another master source before running the service.
 
 ---
 
-## Running Locally
+## Where to edit when you want a specific change
 
-### Prerequisites
+### If you want to improve parsing
+Edit:
+- `app/services/files.py`
 
-- Python 3.10+
-- SQL Server instance (local or network)
-- Microsoft ODBC Driver 17 or 18 for SQL Server
+Examples:
+- better header detection
+- better quantity/UOM detection
+- better row extraction from Excel/PDF/Word
 
-### Setup
+### If you want to improve typo handling
+Edit:
+- `app/services/matching.py`
+
+Examples:
+- stronger Levenshtein weight
+- phonetic tuning
+- TF-IDF weighting
+- fallback behavior
+- thresholds
+
+### If you want to change legacy vs advanced flow
+Edit:
+- `app/services/matcher.py`
+
+Examples:
+- defaulting to advanced mode
+- changing top N from 5 to 10
+- changing summary counters
+- formatting extra response fields
+
+### If you want to change API request behavior
+Edit:
+- `app/api/`
+
+Examples:
+- add a new query param
+- change response format
+- add confirm-match endpoint
+
+### If you want to change what user sees on page
+Edit:
+- `app/templates/`
+
+Examples:
+- make all 5 options clickable
+- show confidence badges
+- add confirm button
+- improve result cards
+
+---
+
+## Matching stack summary
+
+The advanced matcher now includes:
+
+1. Normalization  
+2. Alias resolution  
+3. Token fuzzy matching  
+4. Levenshtein similarity  
+5. Phonetic similarity  
+6. TF-IDF similarity  
+7. Inverted index prefilter  
+8. Typo fallback to all products  
+9. Feedback cache
+
+This means the project is designed so that:
+- **parsing logic** is separate,
+- **orchestration logic** is separate,
+- **matching intelligence** is separate,
+- **database structure** is separate,
+- **UI rendering** is separate.
+
+That separation makes debugging much easier.
+
+---
+
+## Installation
 
 ```bash
 git clone https://github.com/Dwaynee247-06/ShipsKart-Parser-OG.git
 cd ShipsKart-Parser-OG
-
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-
 pip install -r requirements.txt
 ```
 
-Configure your `.env` file:
+---
 
-```env
-DATABASE_URL=mssql+pyodbc://USER:PASSWORD@SERVER/ShipsKartDB?driver=ODBC+Driver+17+for+SQL+Server
-API_V1_PREFIX=/api/v1
-APP_NAME=ShipsKart Parser API
-APP_VERSION=1.1.0
-```
-
-### Start the server
+## Run locally
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
----
+Swagger docs:
 
-## Testing the Parser
-
-Sample test files can be used directly:
-
-| File | Format | Use |
-|---|---|---|
-| `test_provision_sample.xlsx` | Excel | Smaller replica of the owner sheet |
-| `test_provision_sample.docx` | Word | Same data in `.docx` table format |
-
-1. Run the app and open Swagger: `http://localhost:8000/docs`
-2. Go to `POST /api/v1/parse/match`
-3. Upload one of the test files
-4. Inspect `tables[table_1].rows[].matches[]` and `score_pct` values
-
-You can also test with scanned / multi-page PDFs — the `pdf.py` parser stitches multiple pages into one logical table.
+```bash
+http://127.0.0.1:8000/docs
+```
 
 ---
 
-## Future Improvements
+## Important dependencies
 
-- Add authentication (API keys / JWT) for production.
-- Support configurable match thresholds (e.g., flag items with score < 60%).
-- Add admin endpoints to manage `Product`, `Brand`, and `Category` directly via the API.
-- Add unit tests for parsers and matcher using `pytest`.
-- Add pagination / filtering for large tables.
-- OCR support for scanned PDFs (e.g., via Tesseract).
-- Expand `ALIAS_MAP` with more regional languages (Gujarati, Tamil, Bengali).
+```txt
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+openpyxl>=3.1.0
+python-docx>=1.1.0
+pdfplumber>=0.11.0
+orjson>=3.10.0
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+sqlalchemy>=2.0.0
+pyodbc>=5.1.0
+alembic>=1.13.0
+rapidfuzz>=3.9.0
+jellyfish>=1.0.0
+scikit-learn>=1.4.0
+pytest>=8.0.0
+httpx>=0.27.0
+```
 
 ---
+
+## Current matching notes
+
+The advanced matcher now includes:
+- typo fallback when inverted-index search returns nothing,
+- phonetic matching using `jellyfish`,
+- adaptive weighted scoring,
+- lower confidence threshold for typo-heavy real-world inputs,
+- support for returning top 5 candidates more reliably.
+
+---
+
+## Author
+
+Built for ShipsKart document parsing and smart catalog matching workflows.
