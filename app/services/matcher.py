@@ -14,8 +14,10 @@ This module exposes two matching paths:
 
 2. Configurable matcher (match_document_advanced):
    - Uses ProductMatcher from app.services.matching
-   - Layers 1–3 are always applied
-   - Layers 4–6 (Levenshtein, TF-IDF, inverted index) can be toggled via flags
+   - Layers 1-3 are always applied
+   - Layers 4/4b (Levenshtein+Phonetic), 5 (TF-IDF), 6 (inverted-index)
+     can be toggled via flags
+   - Layer 7: feedback cache (confirm_match endpoint)
 
 The FastAPI route can choose which path to use based on query params.
 """
@@ -31,7 +33,7 @@ from app.services.matching import ProductMatcher, Product as MatcherProduct
 
 
 # ---------------------------------------------------------------------------
-# Alias dictionary  —  Hindi / Marathi / regional → English
+# Alias dictionary  —  Hindi / Marathi / regional -> English
 # ---------------------------------------------------------------------------
 ALIAS_MAP: dict[str, str] = {
     # Fruits
@@ -285,6 +287,7 @@ def _build_product_matcher(
     use_levenshtein: bool,
     use_tfidf: bool,
     use_inverted_index: bool,
+    use_phonetic: bool,
 ) -> ProductMatcher:
     db_products: list[DbProduct] = (
         db.query(DbProduct)
@@ -300,6 +303,7 @@ def _build_product_matcher(
         use_levenshtein=use_levenshtein,
         use_tfidf=use_tfidf,
         use_inverted_index=use_inverted_index,
+        use_phonetic=use_phonetic,
     )
     return matcher
 
@@ -312,22 +316,26 @@ def match_item_advanced(
 ) -> list[dict[str, Any]]:
     result = matcher.match(item_name, top_n=top_n)
     candidates = result.get("candidates", [])
+    match_status = result.get("status", "candidate")
 
     formatted: list[dict[str, Any]] = []
     for rank, entry in enumerate(candidates, start=1):
         prod = entry["product"]
         score = entry["score"]
 
-        db_product: DbProduct = (
+        db_product: DbProduct | None = (
             db.query(DbProduct)
             .filter(DbProduct.ProductID == prod.id)
             .first()
         )
+        if db_product is None:
+            continue
 
         formatted.append(
             {
                 "rank":         rank,
                 "score_pct":    score,
+                "match_status": match_status if rank == 1 else "candidate",
                 "product_id":   db_product.ProductID,
                 "product_name": db_product.ProductName,
                 "category":     db_product.category.CategoryName if db_product.category else None,
@@ -346,18 +354,20 @@ def match_document_advanced(
     use_levenshtein: bool = True,
     use_tfidf: bool = True,
     use_inverted_index: bool = True,
+    use_phonetic: bool = True,
 ) -> dict[str, Any]:
     matcher = _build_product_matcher(
         db=db,
         use_levenshtein=use_levenshtein,
         use_tfidf=use_tfidf,
         use_inverted_index=use_inverted_index,
+        use_phonetic=use_phonetic,
     )
 
     output_tables: dict[str, Any] = {}
     total_items = 0
-    matched_above_80 = 0
-    matched_above_50 = 0
+    matched_above_72 = 0
+    matched_above_45 = 0
     unmatched = 0
 
     for table_key, table_data in parsed_tables.items():
@@ -369,10 +379,11 @@ def match_document_advanced(
 
             total_items += 1
             best = matches[0]["score_pct"] if matches else 0
-            if best >= 80:
-                matched_above_80 += 1
-            elif best >= 50:
-                matched_above_50 += 1
+            status = matches[0].get("match_status", "candidate") if matches else "no_match"
+            if status in ("confident", "cached") or best >= 72:
+                matched_above_72 += 1
+            elif best >= 45:
+                matched_above_45 += 1
             else:
                 unmatched += 1
 
@@ -386,10 +397,10 @@ def match_document_advanced(
     return {
         "tables": output_tables,
         "summary": {
-            "total_items":      total_items,
-            "matched_above_80": matched_above_80,
-            "matched_above_50": matched_above_50,
-            "unmatched":        unmatched,
+            "total_items":       total_items,
+            "matched_confident": matched_above_72,
+            "matched_candidate": matched_above_45,
+            "unmatched":         unmatched,
         },
     }
 
@@ -406,11 +417,12 @@ def match_document(
     use_levenshtein: bool = True,
     use_tfidf: bool = True,
     use_inverted_index: bool = True,
+    use_phonetic: bool = True,
 ) -> dict[str, Any]:
     """Route to legacy or advanced matcher based on flags.
 
-    - advanced=False → legacy matcher (fast, minimal dependencies)
-    - advanced=True  → ProductMatcher with configurable layers 4–6
+    - advanced=False -> legacy matcher (fast, minimal dependencies)
+    - advanced=True  -> ProductMatcher with configurable layers 4-7
     """
     if not advanced:
         return match_document_legacy(db, parsed_tables, top_n=top_n)
@@ -422,4 +434,5 @@ def match_document(
         use_levenshtein=use_levenshtein,
         use_tfidf=use_tfidf,
         use_inverted_index=use_inverted_index,
+        use_phonetic=use_phonetic,
     )
