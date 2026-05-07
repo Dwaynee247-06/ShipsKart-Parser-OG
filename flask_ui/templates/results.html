@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Parse Result – ShipsKart</title>
+  <style>
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { margin-bottom: .5rem; }
+    .meta { margin-bottom: 1rem; font-size: .9rem; color:#444; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: 0.9rem; }
+    th, td { border: 1px solid #ddd; padding: 0.4rem 0.5rem; vertical-align: top; }
+    th { background: #f3f3f3; }
+    .score-strong { color: #0a7a26; font-weight: 600; }
+    .score-partial { color: #b57f00; }
+    .score-fail { color: #b30000; }
+    .btn { padding: .4rem .8rem; border-radius: 4px; border: 1px solid #01696f; background:#01696f; color:#fff; cursor:pointer; text-decoration:none; font-weight:500; }
+    .btn:hover { background:#015258; }
+  </style>
+</head>
+<body>
+  <h1>Parse Result</h1>
+
+  <p class="meta">
+    API: {{ api_base }} |
+    Top N: {{ top_n }} |
+    Advanced: {{ 'on' if advanced else 'off' }} |
+    L: {{ 'on' if use_lev else 'off' }},
+    TF-IDF: {{ 'on' if use_tfidf else 'off' }},
+    InvIdx: {{ 'on' if use_inv else 'off' }}
+  </p>
+
+  <h2>Summary</h2>
+  <ul>
+    <li>Total items: {{ response.summary.total_items }}</li>
+    <li>Matched ≥ 80%: {{ response.summary.matched_above_80 }}</li>
+    <li>Matched 50–79%: {{ response.summary.matched_above_50 }}</li>
+    <li>Unmatched: {{ response.summary.unmatched }}</li>
+  </ul>
+
+  {% for table_name, table in response.tables.items() %}
+    <h2>Table: {{ table_name }}</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Sr No</th>
+          <th>Item</th>
+          <th>Qty</th>
+          <th>Unit</th>
+          <th>Best match</th>
+          <th>Score</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in table.rows %}
+          {% set best = (row.matches[0] if row.matches else None) %}
+          {% if best %}
+            {% if best.score_pct >= 80 %}
+              {% set score_class = 'score-strong' %}
+            {% elif best.score_pct >= 50 %}
+              {% set score_class = 'score-partial' %}
+            {% else %}
+              {% set score_class = 'score-fail' %}
+            {% endif %}
+          {% else %}
+            {% set score_class = 'score-fail' %}
+          {% endif %}
+          <tr>
+            <td>{{ row.sr_no or '-' }}</td>
+            <td>{{ row.items or row.description or '-' }}</td>
+            <td>{{ row.quantity or '-' }}</td>
+            <td>{{ row.unit_of_measurement or '-' }}</td>
+            <td>{{ best.product_name if best else '—' }}</td>
+            <td class="{{ score_class }}">{{ '%.1f' % best.score_pct if best else '0.0' }}%</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endfor %}
+
+  <p style="margin-top:1.5rem;">
+    <a href="{{ url_for('index') }}" class="btn">Back to upload</a>
+  </p>
+</body>
+</html>
