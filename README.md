@@ -1,7 +1,7 @@
 # ShipsKart Parser OG
 
 A FastAPI-based parser and product-matching system for procurement documents.  
-It reads uploaded files, extracts structured item rows, and matches each item against the ShipsKart product catalog using either a legacy fuzzy matcher or an advanced layered matcher.
+It reads uploaded files, extracts structured item rows, and matches each item against the ShipsKart product catalog using either a simple fuzzy matcher or an advanced layered matcher.
 
 ---
 
@@ -32,7 +32,7 @@ This section tells you exactly **where each type of logic belongs**.
 | `app/main.py` | App entrypoint | FastAPI app creation, router registration, startup wiring |
 | `app/api/` | API layer | Routes, request handling, file upload input, query params, response return |
 | `app/services/files.py` | Parsing layer | File reading, file-type detection, extraction of structured tables/rows |
-| `app/services/matcher.py` | Orchestration layer | Chooses legacy vs advanced matching, builds matcher, formats final results |
+| `app/services/matcher.py` | Orchestration layer | Chooses simple vs advanced matching, builds matcher, formats final results |
 | `app/services/matching.py` | Matching engine | Normalization, aliases, typo scoring, phonetic scoring, TF-IDF, ranking |
 | `app/models/` | Database models | SQLAlchemy table definitions like Product, Brand, Category |
 | `app/schemas/` | API contracts | Pydantic request/response models |
@@ -119,7 +119,7 @@ It does not contain the deepest scoring logic.
 Instead, it **coordinates** the matching workflow.
 
 **Put here:**
-- legacy matching wrapper
+- simple matching wrapper
 - advanced matching wrapper
 - database product loading
 - converting DB products to matcher objects
@@ -128,8 +128,8 @@ Instead, it **coordinates** the matching workflow.
 - summary counts like matched/unmatched totals
 
 **Important functions that belong here:**
-- `match_item_legacy()`
-- `match_document_legacy()`
+- `match_item_simple()`
+- `match_document_simple()`
 - `_build_product_matcher()`
 - `match_item_advanced()`
 - `match_document_advanced()`
@@ -158,7 +158,6 @@ This file contains the algorithm itself.
 - TF-IDF scoring
 - top-N ranking
 - threshold decisions
-- feedback cache logic
 
 **Important logic in this file:**
 
@@ -193,7 +192,7 @@ Example:
 - score only that smaller list
 
 #### 5. Typo fallback
-If the inverted index finds no candidates because the words are heavily misspelled, the system now falls back to scoring **all products**.
+If the inverted index finds no candidates because the words are heavily misspelled, the system falls back to scoring **all products**.
 
 This is what helps cases like:
 - `chiken dressed broylr`
@@ -214,7 +213,7 @@ Examples:
 #### 8. Phonetic score
 Uses `jellyfish.soundex()` to compare words that sound similar even when spelled differently.
 
-This helps for words that are typed “how they sound”.
+This helps for words that are typed "how they sound".
 
 #### 9. TF-IDF cosine similarity
 Builds character n-gram vectors and compares them mathematically.
@@ -232,10 +231,6 @@ Returns status like:
 - `confident`
 - `candidate`
 - `no_match`
-- `cached`
-
-#### 12. Feedback cache
-If a user confirms a match manually, the system can remember it and return it directly next time.
 
 Think of `matching.py` as the **brain of the project**.
 
@@ -332,7 +327,7 @@ flowchart TD
     D --> E[matcher.py]
     E --> F{advanced mode?}
 
-    F -->|No| G[Legacy matching]
+    F -->|No| G[Simple matching]
     F -->|Yes| H[Build ProductMatcher]
 
     H --> I[matching.py engine]
@@ -382,7 +377,7 @@ Examples:
 - fallback behavior
 - thresholds
 
-### If you want to change legacy vs advanced flow
+### If you want to change simple vs advanced flow
 Edit:
 - `app/services/matcher.py`
 
@@ -399,7 +394,6 @@ Edit:
 Examples:
 - add a new query param
 - change response format
-- add confirm-match endpoint
 
 ### If you want to change what user sees on page
 Edit:
@@ -415,17 +409,16 @@ Examples:
 
 ## Matching stack summary
 
-The advanced matcher now includes:
+The advanced matcher includes:
 
-1. Normalization  
-2. Alias resolution  
-3. Token fuzzy matching  
-4. Levenshtein similarity  
-5. Phonetic similarity  
-6. TF-IDF similarity  
-7. Inverted index prefilter  
-8. Typo fallback to all products  
-9. Feedback cache
+1. Normalization
+2. Alias resolution
+3. Token fuzzy matching
+4. Levenshtein similarity
+5. Phonetic similarity
+6. TF-IDF similarity
+7. Inverted index prefilter
+8. Typo fallback to all products
 
 This means the project is designed so that:
 - **parsing logic** is separate,
@@ -490,16 +483,18 @@ pytest>=8.0.0
 httpx>=0.27.0
 ```
 
+All dependencies listed above are required. Install them all with `pip install -r requirements.txt`.
+
 ---
 
 ## Current matching notes
 
-The advanced matcher now includes:
+The advanced matcher includes:
 - typo fallback when inverted-index search returns nothing,
 - phonetic matching using `jellyfish`,
 - adaptive weighted scoring,
 - lower confidence threshold for typo-heavy real-world inputs,
-- support for returning top 5 candidates more reliably.
+- reliable top 5 candidate results per row.
 
 ---
 
