@@ -3,22 +3,19 @@ matcher.py
 ----------
 Fuzzy product-matching service.
 
-This module exposes two matching paths:
+Exposes two matching paths:
 
-1. Simple matcher (match_document_simple):
+1. Simple matcher  (match_document_simple)
    - Alias expansion via ALIAS_MAP
    - token_set_ratio  (word-order tolerant)
    - partial_ratio    (substring / alias match)
-   Composite score = 0.7 * token_set_ratio + 0.3 * partial_ratio
-   Final score      = max(score_on_original, score_on_alias)
+   Score = max(0.7*token_set_ratio + 0.3*partial_ratio) over original and alias.
 
-2. Configurable matcher (match_document_advanced):
+2. Advanced matcher  (match_document_advanced)
    - Uses ProductMatcher from app.services.matching
-   - Layers 1-3 are always applied
-   - Layers 4/4b (Levenshtein+Phonetic), 5 (TF-IDF), 6 (inverted-index)
-     can be toggled via flags
-
-The FastAPI route can choose which path to use based on query params.
+   - Layers 4/4b (Levenshtein + Phonetic), 5 (TF-IDF), 6 (inverted-index)
+     can be toggled via flags.
+   - ProductMatcher instance is built once per request and reused across rows.
 """
 from __future__ import annotations
 
@@ -28,7 +25,9 @@ from rapidfuzz import fuzz
 from sqlalchemy.orm import Session
 
 from app.models.product import Product as DbProduct
-from app.services.matching import ProductMatcher, Product as MatcherProduct
+# Issue 1 & 15: matching.py now exports MatcherProduct directly;
+# no import alias needed here.
+from app.services.matching import normalize, ProductMatcher, MatcherProduct
 
 
 # ---------------------------------------------------------------------------
@@ -159,17 +158,11 @@ ALIAS_MAP: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
-# Simple helpers (alias + token_set_ratio + partial_ratio)
+# Issue 14: _normalize() removed — use normalize() from matching.py
 # ---------------------------------------------------------------------------
 
-def _normalize(text: str | None) -> str:
-    if not text:
-        return ""
-    return " ".join(str(text).lower().split())
-
-
 def _resolve_alias(text: str) -> str:
-    norm = _normalize(text)
+    norm = normalize(text)
     if norm in ALIAS_MAP:
         return ALIAS_MAP[norm]
     best_key = ""
@@ -182,9 +175,9 @@ def _resolve_alias(text: str) -> str:
 
 
 def _score(query: str, candidate: str) -> float:
-    q_orig  = _normalize(query)
-    q_alias = _normalize(_resolve_alias(query))
-    c       = _normalize(candidate)
+    q_orig  = normalize(query)
+    q_alias = normalize(_resolve_alias(query))
+    c       = normalize(candidate)
 
     if not c:
         return 0.0
@@ -198,7 +191,7 @@ def _score(query: str, candidate: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Simple matching API (used when advanced=False)
+# Simple matching API
 # ---------------------------------------------------------------------------
 
 def match_item_simple(
@@ -278,9 +271,12 @@ def match_document_simple(
 
 
 # ---------------------------------------------------------------------------
-# Advanced matching API (ProductMatcher with configurable layers)
+# Advanced matching helpers
 # ---------------------------------------------------------------------------
 
+# Issue 11: ProductMatcher is built ONCE and returned so the caller can
+# reuse it across all rows in the document — avoids rebuilding TF-IDF
+# and inverted index per row.
 def _build_product_matcher(
     db: Session,
     use_levenshtein: bool,
@@ -293,10 +289,11 @@ def _build_product_matcher(
         .filter(DbProduct.IsActive == True)  # noqa: E712
         .all()
     )
-
-    pm_products = [MatcherProduct(id=p.ProductID, name=p.ProductName) for p in db_products]
-
-    matcher = ProductMatcher(
+    pm_products = [
+        MatcherProduct(id=p.ProductID, name=p.ProductName)
+        for p in db_products
+    ]
+    return ProductMatcher(
         products=pm_products,
         alias_map=ALIAS_MAP,
         use_levenshtein=use_levenshtein,
@@ -304,7 +301,6 @@ def _build_product_matcher(
         use_inverted_index=use_inverted_index,
         use_phonetic=use_phonetic,
     )
-    return matcher
 
 
 def match_item_advanced(
@@ -317,19 +313,26 @@ def match_item_advanced(
     candidates = result.get("candidates", [])
     match_status = result.get("status", "candidate")
 
+    if not candidates:
+        return []
+
+    # Issue 10: batch-fetch all candidate products in ONE query instead
+    # of one query per candidate inside the loop.
+    candidate_ids = [entry["product"].id for entry in candidates]
+    db_products_map: dict[int, DbProduct] = {
+        p.ProductID: p
+        for p in db.query(DbProduct)
+        .filter(DbProduct.ProductID.in_(candidate_ids))
+        .all()
+    }
+
     formatted: list[dict[str, Any]] = []
     for rank, entry in enumerate(candidates, start=1):
         prod = entry["product"]
         score = entry["score"]
-
-        db_product: DbProduct | None = (
-            db.query(DbProduct)
-            .filter(DbProduct.ProductID == prod.id)
-            .first()
-        )
+        db_product = db_products_map.get(prod.id)
         if db_product is None:
             continue
-
         formatted.append(
             {
                 "rank":         rank,
@@ -355,6 +358,7 @@ def match_document_advanced(
     use_inverted_index: bool = True,
     use_phonetic: bool = True,
 ) -> dict[str, Any]:
+    # Issue 11: build matcher ONCE for the entire document
     matcher = _build_product_matcher(
         db=db,
         use_levenshtein=use_levenshtein,
@@ -365,8 +369,8 @@ def match_document_advanced(
 
     output_tables: dict[str, Any] = {}
     total_items = 0
-    matched_above_72 = 0
-    matched_above_45 = 0
+    matched_confident = 0
+    matched_candidate = 0
     unmatched = 0
 
     for table_key, table_data in parsed_tables.items():
@@ -377,12 +381,12 @@ def match_document_advanced(
             enriched_rows.append({**row, "matches": matches})
 
             total_items += 1
-            best = matches[0]["score_pct"] if matches else 0
-            status = matches[0].get("match_status", "candidate") if matches else "no_match"
-            if status == "confident" or best >= 72:
-                matched_above_72 += 1
-            elif best >= 45:
-                matched_above_45 += 1
+            # Issue 12: use only match_status from the result — no double-counting
+            status = matches[0].get("match_status", "no_match") if matches else "no_match"
+            if status == "confident":
+                matched_confident += 1
+            elif status == "candidate":
+                matched_candidate += 1
             else:
                 unmatched += 1
 
@@ -397,8 +401,8 @@ def match_document_advanced(
         "tables": output_tables,
         "summary": {
             "total_items":       total_items,
-            "matched_confident": matched_above_72,
-            "matched_candidate": matched_above_45,
+            "matched_confident": matched_confident,
+            "matched_candidate": matched_candidate,
             "unmatched":         unmatched,
         },
     }
@@ -418,11 +422,7 @@ def match_document(
     use_inverted_index: bool = True,
     use_phonetic: bool = True,
 ) -> dict[str, Any]:
-    """Route to simple or advanced matcher based on flags.
-
-    - advanced=False -> simple matcher (fast, minimal dependencies)
-    - advanced=True  -> ProductMatcher with configurable layers 4-6
-    """
+    """Route to simple or advanced matcher based on the `advanced` flag."""
     if not advanced:
         return match_document_simple(db, parsed_tables, top_n=top_n)
 
