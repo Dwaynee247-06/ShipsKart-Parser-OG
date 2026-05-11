@@ -5,7 +5,7 @@ Fuzzy product-matching service.
 
 This module exposes two matching paths:
 
-1. Legacy matcher (match_document_legacy):
+1. Simple matcher (match_document_simple):
    - Alias expansion via ALIAS_MAP
    - token_set_ratio  (word-order tolerant)
    - partial_ratio    (substring / alias match)
@@ -17,7 +17,6 @@ This module exposes two matching paths:
    - Layers 1-3 are always applied
    - Layers 4/4b (Levenshtein+Phonetic), 5 (TF-IDF), 6 (inverted-index)
      can be toggled via flags
-   - Layer 7: feedback cache (confirm_match endpoint)
 
 The FastAPI route can choose which path to use based on query params.
 """
@@ -160,7 +159,7 @@ ALIAS_MAP: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
-# Legacy helpers (alias + token_set_ratio + partial_ratio)
+# Simple helpers (alias + token_set_ratio + partial_ratio)
 # ---------------------------------------------------------------------------
 
 def _normalize(text: str | None) -> str:
@@ -199,10 +198,10 @@ def _score(query: str, candidate: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Legacy matching API (used when advanced=False)
+# Simple matching API (used when advanced=False)
 # ---------------------------------------------------------------------------
 
-def match_item_legacy(
+def match_item_simple(
     db: Session,
     item_name: str,
     top_n: int = 5,
@@ -233,7 +232,7 @@ def match_item_legacy(
     ]
 
 
-def match_document_legacy(
+def match_document_simple(
     db: Session,
     parsed_tables: dict[str, Any],
     top_n: int = 5,
@@ -248,7 +247,7 @@ def match_document_legacy(
         enriched_rows = []
         for row in table_data.get("rows", []):
             item_name = row.get("items") or row.get("description") or ""
-            matches = match_item_legacy(db, item_name, top_n=top_n)
+            matches = match_item_simple(db, item_name, top_n=top_n)
             enriched_rows.append({**row, "matches": matches})
 
             total_items += 1
@@ -380,7 +379,7 @@ def match_document_advanced(
             total_items += 1
             best = matches[0]["score_pct"] if matches else 0
             status = matches[0].get("match_status", "candidate") if matches else "no_match"
-            if status in ("confident", "cached") or best >= 72:
+            if status == "confident" or best >= 72:
                 matched_above_72 += 1
             elif best >= 45:
                 matched_above_45 += 1
@@ -419,13 +418,13 @@ def match_document(
     use_inverted_index: bool = True,
     use_phonetic: bool = True,
 ) -> dict[str, Any]:
-    """Route to legacy or advanced matcher based on flags.
+    """Route to simple or advanced matcher based on flags.
 
-    - advanced=False -> legacy matcher (fast, minimal dependencies)
-    - advanced=True  -> ProductMatcher with configurable layers 4-7
+    - advanced=False -> simple matcher (fast, minimal dependencies)
+    - advanced=True  -> ProductMatcher with configurable layers 4-6
     """
     if not advanced:
-        return match_document_legacy(db, parsed_tables, top_n=top_n)
+        return match_document_simple(db, parsed_tables, top_n=top_n)
 
     return match_document_advanced(
         db=db,
