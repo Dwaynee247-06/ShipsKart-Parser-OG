@@ -4,95 +4,321 @@
   <meta charset="utf-8" />
   <title>Parse Result – ShipsKart</title>
   <style>
-    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
-    h1 { margin-bottom: .5rem; }
-    .meta { margin-bottom: 1rem; font-size: .9rem; color:#444; }
-    table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: 0.9rem; }
-    th, td { border: 1px solid #ddd; padding: 0.4rem 0.5rem; vertical-align: top; }
-    th { background: #f3f3f3; }
-    .score-strong { color: #0a7a26; font-weight: 600; }
-    .score-partial { color: #b57f00; }
-    .score-fail { color: #b30000; }
-    .btn { padding: .4rem .8rem; border-radius: 4px; border: 1px solid #01696f; background:#01696f; color:#fff; cursor:pointer; text-decoration:none; font-weight:500; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 1280px; margin: 2rem auto; padding: 0 1rem;
+      color: #1a1a1a; background: #f8f8f8;
+    }
+    h1 { font-size: 1.6rem; margin-bottom: .4rem; }
+    h2 { font-size: 1.15rem; margin: 1.6rem 0 .6rem; }
+    .meta { font-size: .85rem; color: #555; margin-bottom: 1rem; }
+    .summary { display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.4rem; }
+    .summary-card {
+      background:#fff; border:1px solid #e0e0e0; border-radius:8px;
+      padding:.6rem 1rem; min-width:130px; text-align:center;
+    }
+    .summary-card .num { font-size:1.5rem; font-weight:700; color:#01696f; }
+    .summary-card .lbl { font-size:.78rem; color:#666; margin-top:.15rem; }
+
+    /* --- main results table --- */
+    table { border-collapse: collapse; width:100%; margin-top:.5rem; font-size:.85rem; background:#fff; }
+    th, td { border:1px solid #ddd; padding:.4rem .55rem; vertical-align:top; }
+    th { background:#f0f0f0; font-weight:600; white-space:nowrap; }
+    tr:hover > td { background:#fafafa; }
+
+    /* score colours */
+    .score-strong { color:#0a7a26; font-weight:600; }
+    .score-partial { color:#b57f00; font-weight:600; }
+    .score-fail   { color:#b30000; font-weight:600; }
+
+    /* status badge */
+    .badge {
+      display:inline-block; padding:.15rem .45rem; border-radius:4px;
+      font-size:.72rem; font-weight:600; letter-spacing:.03em; text-transform:uppercase;
+    }
+    .badge-confident { background:#d4edda; color:#155724; }
+    .badge-candidate { background:#fff3cd; color:#856404; }
+    .badge-no_match  { background:#f8d7da; color:#721c24; }
+    .badge-cached    { background:#cce5ff; color:#004085; }
+
+    /* --- candidate panel --- */
+    .toggle-btn {
+      background:none; border:none; cursor:pointer; color:#01696f;
+      font-size:.82rem; font-weight:600; padding:0; display:flex;
+      align-items:center; gap:.3rem; white-space:nowrap;
+    }
+    .toggle-btn svg { transition: transform .2s; }
+    .toggle-btn.open svg { transform: rotate(180deg); }
+
+    .candidates-panel {
+      display:none; margin-top:.5rem; border:1px solid #ddd;
+      border-radius:6px; overflow:hidden;
+    }
+    .candidates-panel.open { display:block; }
+
+    .candidate-card {
+      display:flex; align-items:center; gap:.6rem;
+      padding:.45rem .7rem; background:#fff; cursor:pointer;
+      border-bottom:1px solid #eee; transition:background .15s;
+    }
+    .candidate-card:last-child { border-bottom:none; }
+    .candidate-card:hover { background:#f0fafa; }
+    .candidate-card.selected { background:#e6f4f1; }
+    .candidate-card input[type=radio] { accent-color:#01696f; flex-shrink:0; }
+    .candidate-name { flex:1; font-size:.85rem; }
+    .candidate-score { font-size:.8rem; font-weight:600; white-space:nowrap; }
+
+    .confirm-btn {
+      margin:.5rem .7rem .7rem;
+      padding:.35rem .9rem; border-radius:5px;
+      background:#01696f; color:#fff; border:none;
+      cursor:pointer; font-size:.82rem; font-weight:600;
+    }
+    .confirm-btn:hover { background:#015258; }
+    .confirm-toast {
+      display:none; font-size:.78rem; color:#155724;
+      margin:.2rem .7rem .6rem; font-weight:600;
+    }
+
+    /* nav */
+    .btn {
+      display:inline-block; padding:.45rem 1rem; border-radius:5px;
+      border:1px solid #01696f; background:#01696f; color:#fff;
+      cursor:pointer; text-decoration:none; font-weight:500;
+      font-size:.9rem; margin-top:1.5rem;
+    }
     .btn:hover { background:#015258; }
-    ul.match-list { margin: 0; padding-left: 1.1rem; }
-    ul.match-list li { margin: 0; }
   </style>
 </head>
 <body>
-  <h1>Parse Result</h1>
 
-  <p class="meta">
-    API: {{ api_base }} |
-    Top N: {{ top_n }} |
-    Advanced: {{ 'on' if advanced else 'off' }} |
-    L: {{ 'on' if use_lev else 'off' }},
-    TF-IDF: {{ 'on' if use_tfidf else 'off' }},
-    InvIdx: {{ 'on' if use_inv else 'off' }}
-  </p>
+<h1>Parse Result</h1>
+<p class="meta">
+  API: {{ api_base }} &nbsp;|&nbsp;
+  Top&nbsp;N: {{ top_n }} &nbsp;|&nbsp;
+  Advanced: <strong>{{ 'on' if advanced else 'off' }}</strong> &nbsp;|&nbsp;
+  Levenshtein: {{ 'on' if use_lev else 'off' }} &nbsp;
+  TF-IDF: {{ 'on' if use_tfidf else 'off' }} &nbsp;
+  InvIdx: {{ 'on' if use_inv else 'off' }} &nbsp;
+  Phonetic: {{ 'on' if use_phonetic else 'off' }}
+</p>
 
-  <h2>Summary</h2>
-  <ul>
-    <li>Total items: {{ response.summary.total_items }}</li>
-    <li>Matched ≥ 80%: {{ response.summary.matched_above_80 }}</li>
-    <li>Matched 50–79%: {{ response.summary.matched_above_50 }}</li>
-    <li>Unmatched: {{ response.summary.unmatched }}</li>
-  </ul>
+{# ── Summary ─────────────────────────────────────────────── #}
+<h2>Summary</h2>
+<div class="summary">
+  {% if advanced %}
+    <div class="summary-card">
+      <div class="num">{{ response.summary.total_items }}</div>
+      <div class="lbl">Total items</div>
+    </div>
+    <div class="summary-card">
+      <div class="num" style="color:#155724">{{ response.summary.matched_confident }}</div>
+      <div class="lbl">Confident (≥72%)</div>
+    </div>
+    <div class="summary-card">
+      <div class="num" style="color:#856404">{{ response.summary.matched_candidate }}</div>
+      <div class="lbl">Candidate (45–71%)</div>
+    </div>
+    <div class="summary-card">
+      <div class="num" style="color:#721c24">{{ response.summary.unmatched }}</div>
+      <div class="lbl">Unmatched</div>
+    </div>
+  {% else %}
+    <div class="summary-card">
+      <div class="num">{{ response.summary.total_items }}</div>
+      <div class="lbl">Total items</div>
+    </div>
+    <div class="summary-card">
+      <div class="num" style="color:#155724">{{ response.summary.matched_above_80 }}</div>
+      <div class="lbl">Matched ≥80%</div>
+    </div>
+    <div class="summary-card">
+      <div class="num" style="color:#856404">{{ response.summary.matched_above_50 }}</div>
+      <div class="lbl">Matched 50–79%</div>
+    </div>
+    <div class="summary-card">
+      <div class="num" style="color:#721c24">{{ response.summary.unmatched }}</div>
+      <div class="lbl">Unmatched</div>
+    </div>
+  {% endif %}
+</div>
 
-  {% for table_name, table in response.tables.items() %}
-    <h2>Table: {{ table_name }}</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Sr No</th>
-          <th>Item</th>
-          <th>Qty</th>
-          <th>Unit</th>
-          <th>Best match</th>
-          <th>Score</th>
-          <th>All matches (options)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in table.rows %}
-          {% set best = (row.matches[0] if row.matches else None) %}
-          {% if best %}
-            {% if best.score_pct >= 80 %}
-              {% set score_class = 'score-strong' %}
-            {% elif best.score_pct >= 50 %}
-              {% set score_class = 'score-partial' %}
-            {% else %}
-              {% set score_class = 'score-fail' %}
-            {% endif %}
+{# ── Per-table results ────────────────────────────────────── #}
+{% for table_name, table in response.tables.items() %}
+  <h2>Table: {{ table_name }}</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Item</th>
+        <th>Qty</th>
+        <th>Unit</th>
+        <th>Best match</th>
+        <th>Score</th>
+        {% if advanced %}<th>Status</th>{% endif %}
+        <th>All matches ({{ top_n }})</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in table.rows %}
+        {% set best = (row.matches[0] if row.matches else None) %}
+
+        {# score colour #}
+        {% if best %}
+          {% set threshold_hi = 72 if advanced else 80 %}
+          {% set threshold_lo = 45 if advanced else 50 %}
+          {% if best.score_pct >= threshold_hi %}
+            {% set sc = 'score-strong' %}
+          {% elif best.score_pct >= threshold_lo %}
+            {% set sc = 'score-partial' %}
           {% else %}
-            {% set score_class = 'score-fail' %}
+            {% set sc = 'score-fail' %}
           {% endif %}
-          <tr>
-            <td>{{ row.sr_no or '-' }}</td>
-            <td>{{ row.get('items') or row.get('description') or '-' }}</td>
-            <td>{{ row.quantity or '-' }}</td>
-            <td>{{ row.unit_of_measurement or '-' }}</td>
-            <td>{{ best.product_name if best else '—' }}</td>
-            <td class="{{ score_class }}">{{ '%.1f' % best.score_pct if best else '0.0' }}%</td>
-            <td>
-              {% if row.matches %}
-                <ul class="match-list">
-                  {% for m in row.matches %}
-                    <li>{{ m.product_name }} ({{ '%.1f' % m.score_pct }}%)</li>
-                  {% endfor %}
-                </ul>
-              {% else %}
-                —
-              {% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% endfor %}
+        {% else %}
+          {% set sc = 'score-fail' %}
+        {% endif %}
 
-  <p style="margin-top:1.5rem;">
-    <a href="{{ url_for('index') }}" class="btn">Back to upload</a>
-  </p>
+        {# row id for JS #}
+        {% set row_id = loop.index0 | string + '_' + table_name | replace(' ','_') %}
+
+        <tr>
+          <td>{{ row.sr_no or loop.index }}</td>
+          <td>{{ row.get('items') or row.get('description') or '-' }}</td>
+          <td>{{ row.quantity or '-' }}</td>
+          <td>{{ row.unit_of_measurement or '-' }}</td>
+
+          {# Best match cell — updated by JS on confirm #}
+          <td id="best-name-{{ row_id }}">{{ best.product_name if best else '—' }}</td>
+
+          {# Score cell — updated by JS on confirm #}
+          <td class="{{ sc }}" id="best-score-{{ row_id }}">
+            {{ '%.1f' % best.score_pct if best else '0.0' }}%
+          </td>
+
+          {% if advanced %}
+            {% set status_val = best.match_status if best else 'no_match' %}
+            <td id="best-status-{{ row_id }}">
+              <span class="badge badge-{{ status_val }}">{{ status_val }}</span>
+            </td>
+          {% endif %}
+
+          {# ── Candidate cards ─────────────────────────── #}
+          <td>
+            {% if row.matches %}
+              <button
+                class="toggle-btn"
+                onclick="togglePanel('panel-{{ row_id }}', this)"
+                aria-expanded="false"
+              >
+                View {{ row.matches | length }} options
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                     stroke="currentColor" stroke-width="2">
+                  <polyline points="2,4 6,8 10,4"/>
+                </svg>
+              </button>
+
+              <div class="candidates-panel" id="panel-{{ row_id }}">
+                {% for m in row.matches %}
+                  {% if m.score_pct >= (72 if advanced else 80) %}
+                    {% set card_sc = 'score-strong' %}
+                  {% elif m.score_pct >= (45 if advanced else 50) %}
+                    {% set card_sc = 'score-partial' %}
+                  {% else %}
+                    {% set card_sc = 'score-fail' %}
+                  {% endif %}
+                  <label
+                    class="candidate-card{% if loop.first %} selected{% endif %}"
+                    onclick="selectCard(this, 'group-{{ row_id }}')"
+                  >
+                    <input
+                      type="radio"
+                      name="group-{{ row_id }}"
+                      value="{{ m.product_id }}"
+                      data-name="{{ m.product_name | e }}"
+                      data-score="{{ '%.1f' % m.score_pct }}"
+                      {% if loop.first %}checked{% endif %}
+                    />
+                    <span class="candidate-name">{{ m.product_name }}</span>
+                    <span class="candidate-score {{ card_sc }}">{{ '%.1f' % m.score_pct }}%</span>
+                  </label>
+                {% endfor %}
+
+                <button
+                  class="confirm-btn"
+                  onclick="confirmMatch(
+                    '{{ (row.get('items') or row.get('description') or '') | e }}',
+                    'group-{{ row_id }}',
+                    'best-name-{{ row_id }}',
+                    'best-score-{{ row_id }}',
+                    'best-status-{{ row_id }}',
+                    'toast-{{ row_id }}'
+                  )"
+                >
+                  Confirm selection
+                </button>
+                <div class="confirm-toast" id="toast-{{ row_id }}">✓ Confirmed</div>
+              </div>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endfor %}
+
+<a href="{{ url_for('index') }}" class="btn">← Back to upload</a>
+
+<script>
+const API_BASE = {{ api_base | tojson }};
+
+function togglePanel(panelId, btn) {
+  const panel = document.getElementById(panelId);
+  const open  = panel.classList.toggle('open');
+  btn.classList.toggle('open', open);
+  btn.setAttribute('aria-expanded', open);
+}
+
+function selectCard(label, groupName) {
+  document.querySelectorAll(`[onclick*="'${groupName}'"]`).forEach(el => {
+    el.classList.remove('selected');
+  });
+  label.classList.add('selected');
+  label.querySelector('input').checked = true;
+}
+
+function confirmMatch(rawQuery, groupName, nameId, scoreId, statusId, toastId) {
+  const checked = document.querySelector(`input[name="${groupName}"]:checked`);
+  if (!checked) return;
+
+  const productId   = parseInt(checked.value, 10);
+  const productName = checked.dataset.name;
+  const score       = checked.dataset.score;
+
+  // update best-match cells
+  document.getElementById(nameId).textContent  = productName;
+  document.getElementById(scoreId).textContent = score + '%';
+  const statusEl = document.getElementById(statusId);
+  if (statusEl) {
+    statusEl.innerHTML = '<span class="badge badge-confident">confirmed</span>';
+  }
+
+  // show toast
+  const toast = document.getElementById(toastId);
+  if (toast) { toast.style.display = 'block'; }
+
+  // hit confirm endpoint if available
+  if (rawQuery && productId) {
+    fetch(API_BASE + '/api/v1/confirm_match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw_query: rawQuery, product_id: productId }),
+    }).catch(() => {});
+  }
+}
+</script>
 </body>
 </html>

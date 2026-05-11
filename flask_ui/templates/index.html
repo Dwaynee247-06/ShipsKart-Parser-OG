@@ -2,78 +2,102 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>ShipsKart Parser – Flask UI</title>
+  <title>ShipsKart Parser</title>
   <style>
-    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
-    h1 { margin-bottom: .5rem; }
-    .field { margin-bottom: 1rem; }
-    label { display: block; font-weight: 600; margin-bottom: .25rem; }
-    input[type="number"], input[type="text"], input[type="file"] { width: 100%; padding: .35rem .5rem; box-sizing: border-box; }
-    small { color: #555; }
-    fieldset { border: 1px solid #ddd; padding: .75rem 1rem 1rem; border-radius: 6px; }
-    legend { padding: 0 .25rem; font-weight: 600; }
-    .checkbox-row { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: .5rem; }
-    .checkbox-row label { font-weight: 400; display: flex; align-items: center; gap: .25rem; }
-    .btn { padding: .45rem .9rem; border-radius: 4px; border: 1px solid #01696f; background:#01696f; color:#fff; cursor:pointer; font-weight:500; }
-    .btn:hover { background:#015258; }
-    .flash { padding:.5rem .75rem; border-radius:4px; margin-bottom:1rem; }
-    .flash.error { background:#ffd6d6; color:#900; border:1px solid #f5aaaa; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 680px; margin: 3rem auto; padding: 0 1.5rem;
+      color: #1a1a1a; background: #f8f8f8;
+    }
+    h1 { font-size: 1.6rem; margin-bottom: .4rem; }
+    p.sub { color: #555; font-size: .9rem; margin-bottom: 1.6rem; }
+    .card {
+      background: #fff; border: 1px solid #e0e0e0; border-radius: 10px;
+      padding: 1.5rem 1.8rem;
+    }
+    label { display: block; font-weight: 600; font-size: .88rem; margin-bottom: .3rem; margin-top: .9rem; }
+    input[type=file], input[type=number] {
+      width: 100%; padding: .45rem .6rem; border: 1px solid #ccc;
+      border-radius: 5px; font-size: .9rem;
+    }
+    .flags { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: .5rem; }
+    .flag-item {
+      display: flex; align-items: center; gap: .35rem;
+      font-size: .87rem; cursor: pointer;
+    }
+    .flag-item input { accent-color: #01696f; width:16px; height:16px; }
+    .adv-box {
+      border: 1px solid #ddd; border-radius: 7px;
+      padding: .8rem 1rem; margin-top: .5rem; background: #fafafa;
+    }
+    .adv-box-title { font-weight: 600; font-size: .88rem; margin-bottom: .5rem; }
+    button[type=submit] {
+      margin-top: 1.3rem; width: 100%; padding: .6rem;
+      background: #01696f; color: #fff; border: none;
+      border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer;
+    }
+    button[type=submit]:hover { background: #015258; }
+    .flash { background: #fdecea; color: #b00020; border-radius: 6px;
+             padding: .6rem 1rem; margin-bottom: 1rem; font-size: .88rem; }
   </style>
 </head>
 <body>
-  <h1>ShipsKart Parser – Flask UI</h1>
-  <p>Upload an Excel, Word, or PDF document and match every line item against the product master.</p>
+  <h1>ShipsKart Parser</h1>
+  <p class="sub">Upload a procurement document (Excel, PDF, Word) to extract and match items.</p>
 
-  {% with messages = get_flashed_messages(with_categories=true) %}
+  {% with messages = get_flashed_messages() %}
     {% if messages %}
-      {% for category, msg in messages %}
-        <div class="flash {{ category }}">{{ msg }}</div>
-      {% endfor %}
+      {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
     {% endif %}
   {% endwith %}
 
-  <form method="post" enctype="multipart/form-data">
-    <div class="field">
-      <label for="file">Upload file</label>
-      <input type="file" id="file" name="file" accept=".xlsx,.xlsm,.docx,.doc,.pdf" required />
-    </div>
+  <div class="card">
+    <form method="post" action="/upload" enctype="multipart/form-data">
 
-    <div class="field">
-      <label for="top_n">Top N matches per item</label>
-      <input type="number" id="top_n" name="top_n" value="5" min="1" max="20" />
-    </div>
+      <label>Document file</label>
+      <input type="file" name="file" accept=".xlsx,.xls,.pdf,.docx,.doc" required />
 
-    <div class="field">
-      <label for="api_base">API base URL</label>
-      <input type="text" id="api_base" name="api_base" value="{{ api_base }}" />
-      <small>FastAPI endpoint (default: http://localhost:8000)</small>
-    </div>
+      <label>Top N matches per item</label>
+      <input type="number" name="top_n" value="5" min="1" max="20" />
 
-    <fieldset class="field">
-      <legend>Advanced matching (Layers 4–6)</legend>
-      <div class="field">
-        <label>
-          <input type="checkbox" name="advanced" checked />
-          Enable advanced matching
-        </label>
+      <label style="margin-top:1rem;">
+        <span style="display:flex;align-items:center;gap:.4rem;">
+          <input type="checkbox" name="advanced" id="advChk" onchange="toggleAdv(this)" />
+          Use advanced matcher
+        </span>
+      </label>
+
+      <div class="adv-box" id="advBox" style="display:none;">
+        <div class="adv-box-title">Advanced layers</div>
+        <div class="flags">
+          <label class="flag-item">
+            <input type="checkbox" name="use_lev" checked />
+            Levenshtein (typos)
+          </label>
+          <label class="flag-item">
+            <input type="checkbox" name="use_tfidf" checked />
+            TF-IDF (char n-grams)
+          </label>
+          <label class="flag-item">
+            <input type="checkbox" name="use_inv" checked />
+            Inverted index
+          </label>
+          <label class="flag-item">
+            <input type="checkbox" name="use_phonetic" checked />
+            Phonetic (Soundex)
+          </label>
+        </div>
       </div>
-      <div class="checkbox-row">
-        <label>
-          <input type="checkbox" name="use_levenshtein" checked />
-          Levenshtein (typo handling)
-        </label>
-        <label>
-          <input type="checkbox" name="use_tfidf" checked />
-          TF-IDF (character n-grams)
-        </label>
-        <label>
-          <input type="checkbox" name="use_inverted_index" checked />
-          Inverted index (speed)
-        </label>
-      </div>
-    </fieldset>
 
-    <button type="submit" class="btn">Parse &amp; Match</button>
-  </form>
+      <button type="submit">Parse &amp; Match</button>
+    </form>
+  </div>
+
+  <script>
+    function toggleAdv(chk) {
+      document.getElementById('advBox').style.display = chk.checked ? 'block' : 'none';
+    }
+  </script>
 </body>
 </html>
