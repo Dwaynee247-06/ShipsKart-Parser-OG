@@ -456,7 +456,7 @@ python app.py
 Swagger docs:
 
 ```bash
-http://127.0.0.1:8000/docs
+http://127.0.0.1:8080/docs
 ```
 
 ---

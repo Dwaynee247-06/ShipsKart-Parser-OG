@@ -5,7 +5,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "dev-secret")
 
-API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000")
+API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8080")
 
 
 @app.route("/", methods=["GET"])
