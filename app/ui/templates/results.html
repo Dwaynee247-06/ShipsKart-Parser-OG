@@ -1,0 +1,380 @@
+{% extends "base.html" %}
+{% block title %}Results — ShipsKart Parser{% endblock %}
+
+{% block head %}
+<style>
+  /* ── Page layout ──────────────────────────────────────── */
+  .results-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-6);
+  }
+  .page-heading {
+    font-size: var(--text-xl); font-weight: 700;
+    letter-spacing: -0.02em; margin-bottom: var(--space-1);
+  }
+  .page-meta {
+    font-size: var(--text-xs); color: var(--color-text-muted);
+    display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-5);
+  }
+  .meta-item { display: flex; align-items: center; gap: var(--space-1); }
+  .meta-dot {
+    width: 6px; height: 6px; border-radius: var(--radius-full);
+    background: var(--color-primary);
+  }
+
+  /* ── KPI strip ────────────────────────────────────────── */
+  .kpi-strip {
+    display: flex; flex-wrap: wrap; gap: var(--space-3);
+    margin-bottom: var(--space-8);
+  }
+  .kpi-card {
+    flex: 1; min-width: 120px;
+    background: var(--color-surface); border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5);
+    box-shadow: var(--shadow-sm);
+  }
+  .kpi-value {
+    font-size: var(--text-xl); font-weight: 700; line-height: 1.1;
+    font-variant-numeric: tabular-nums lining-nums;
+    margin-bottom: var(--space-1);
+  }
+  .kpi-label { font-size: var(--text-xs); color: var(--color-text-muted); }
+  .kpi-confident .kpi-value { color: var(--color-success-text); }
+  .kpi-candidate .kpi-value { color: var(--color-warning-text); }
+  .kpi-unmatched .kpi-value { color: var(--color-error-text); }
+
+  /* ── Table section ────────────────────────────────────── */
+  .table-section { margin-bottom: var(--space-10); }
+  .section-title {
+    font-size: var(--text-lg); font-weight: 700;
+    margin-bottom: var(--space-4); display: flex; align-items: center; gap: var(--space-2);
+  }
+  .table-wrap {
+    overflow-x: auto; border-radius: var(--radius-xl);
+    border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);
+  }
+  table { border-collapse: collapse; width: 100%; background: var(--color-surface); font-size: var(--text-xs); }
+  thead th {
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-surface-offset);
+    text-align: left; font-weight: 700;
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--color-text-muted); white-space: nowrap;
+    border-bottom: 1px solid var(--color-border);
+  }
+  tbody tr { border-bottom: 1px solid var(--color-divider); }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover td { background: color-mix(in oklch, var(--color-primary) 4%, var(--color-surface)); }
+  tbody td { padding: var(--space-3) var(--space-4); vertical-align: top; }
+
+  .score {
+    font-weight: 700; font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .score-strong { color: var(--color-success-text); }
+  .score-partial { color: var(--color-warning-text); }
+  .score-fail   { color: var(--color-error-text); }
+
+  /* ── Candidate panel ──────────────────────────────────── */
+  .toggle-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--color-primary); font-size: var(--text-xs); font-weight: 600;
+    padding: 0; display: inline-flex; align-items: center; gap: var(--space-1);
+    white-space: nowrap;
+  }
+  .toggle-btn svg { transition: transform 0.2s; }
+  .toggle-btn.open svg { transform: rotate(180deg); }
+
+  .candidates-panel {
+    display: none; margin-top: var(--space-2);
+    border: 1px solid var(--color-border); border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  .candidates-panel.open { display: block; }
+
+  .candidate-card {
+    display: flex; align-items: center; gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-surface-2);
+    cursor: pointer; border-bottom: 1px solid var(--color-divider);
+    transition: background var(--transition);
+  }
+  .candidate-card:last-of-type { border-bottom: none; }
+  .candidate-card:hover { background: color-mix(in oklch, var(--color-primary) 6%, var(--color-surface-2)); }
+  .candidate-card.selected { background: color-mix(in oklch, var(--color-primary) 10%, var(--color-surface-2)); }
+  .candidate-card input[type=radio] { accent-color: var(--color-primary); flex-shrink: 0; }
+  .candidate-name { flex: 1; font-size: var(--text-xs); }
+  .candidate-score { font-size: var(--text-xs); font-weight: 700; white-space: nowrap; }
+
+  .confirm-btn {
+    display: block; width: 100%;
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-primary); color: var(--color-text-inverse);
+    border: none; font-size: var(--text-xs); font-weight: 700;
+    cursor: pointer; transition: background var(--transition);
+  }
+  .confirm-btn:hover { background: var(--color-primary-hover); }
+
+  .confirm-toast {
+    display: none; padding: var(--space-2) var(--space-3);
+    font-size: var(--text-xs); font-weight: 700;
+    color: var(--color-success-text);
+    background: var(--color-success-bg);
+    text-align: center;
+  }
+
+  /* ── Back link ────────────────────────────────────────── */
+  .back-row { margin-top: var(--space-8); }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Header -->
+<div class="results-header">
+  <div>
+    <h1 class="page-heading">Parse Results</h1>
+    <div class="page-meta">
+      <span class="meta-item">
+        <span class="meta-dot"></span>
+        Mode: <strong>{{ 'Advanced' if advanced else 'Legacy' }}</strong>
+      </span>
+      <span class="meta-item">
+        <span class="meta-dot"></span>
+        Top N: <strong>{{ top_n }}</strong>
+      </span>
+      {% if advanced %}
+        <span class="meta-item">
+          Lev {{ '✓' if use_lev else '✗' }}
+          &nbsp;TF-IDF {{ '✓' if use_tfidf else '✗' }}
+          &nbsp;Phonetic {{ '✓' if use_phonetic else '✗' }}
+          &nbsp;InvIdx {{ '✓' if use_inv else '✗' }}
+        </span>
+      {% endif %}
+    </div>
+  </div>
+  <a href="/" class="btn btn-ghost">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <path d="M19 12H5M12 19l-7-7 7-7"/>
+    </svg>
+    New upload
+  </a>
+</div>
+
+<!-- KPI strip -->
+<div class="kpi-strip">
+  <div class="kpi-card">
+    <div class="kpi-value">{{ response.summary.total_items }}</div>
+    <div class="kpi-label">Total items</div>
+  </div>
+  {% if advanced %}
+    <div class="kpi-card kpi-confident">
+      <div class="kpi-value">{{ response.summary.matched_confident }}</div>
+      <div class="kpi-label">Confident ≥ 72%</div>
+    </div>
+    <div class="kpi-card kpi-candidate">
+      <div class="kpi-value">{{ response.summary.matched_candidate }}</div>
+      <div class="kpi-label">Candidate 45–71%</div>
+    </div>
+    <div class="kpi-card kpi-unmatched">
+      <div class="kpi-value">{{ response.summary.unmatched }}</div>
+      <div class="kpi-label">Unmatched</div>
+    </div>
+  {% else %}
+    <div class="kpi-card kpi-confident">
+      <div class="kpi-value">{{ response.summary.matched_above_80 }}</div>
+      <div class="kpi-label">Matched ≥ 80%</div>
+    </div>
+    <div class="kpi-card kpi-candidate">
+      <div class="kpi-value">{{ response.summary.matched_above_50 }}</div>
+      <div class="kpi-label">Matched 50–79%</div>
+    </div>
+    <div class="kpi-card kpi-unmatched">
+      <div class="kpi-value">{{ response.summary.unmatched }}</div>
+      <div class="kpi-label">Unmatched</div>
+    </div>
+  {% endif %}
+</div>
+
+<!-- Per-table results -->
+{% for table_name, table in response.tables.items() %}
+<div class="table-section">
+  <h2 class="section-title">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="2"/>
+      <path d="M3 9h18M9 21V9"/>
+    </svg>
+    {{ table_name }}
+  </h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Item</th>
+          <th>Qty</th>
+          <th>Unit</th>
+          <th>Best match</th>
+          <th>Score</th>
+          {% if advanced %}<th>Status</th>{% endif %}
+          <th>Candidates ({{ top_n }})</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in table.rows %}
+          {% set best = (row.matches[0] if row.matches else None) %}
+          {% set threshold_hi = 72 if advanced else 80 %}
+          {% set threshold_lo = 45 if advanced else 50 %}
+          {% if best %}
+            {% if best.score_pct >= threshold_hi %}
+              {% set sc = 'score-strong' %}
+            {% elif best.score_pct >= threshold_lo %}
+              {% set sc = 'score-partial' %}
+            {% else %}
+              {% set sc = 'score-fail' %}
+            {% endif %}
+          {% else %}
+            {% set sc = 'score-fail' %}
+          {% endif %}
+          {% set row_id = (loop.index0 | string) + '_' + table_name | replace(' ', '_') %}
+          <tr>
+            <td style="color:var(--color-text-muted)">{{ row.sr_no or loop.index }}</td>
+            <td><strong>{{ row.get('items') or row.get('description') or '—' }}</strong></td>
+            <td style="font-variant-numeric:tabular-nums">{{ row.quantity or '—' }}</td>
+            <td>{{ row.unit_of_measurement or '—' }}</td>
+            <td id="best-name-{{ row_id }}">{{ best.product_name if best else '—' }}</td>
+            <td>
+              <span class="score {{ sc }}" id="best-score-{{ row_id }}">
+                {{ '%.1f' % best.score_pct if best else '0.0' }}%
+              </span>
+            </td>
+            {% if advanced %}
+              {% set status_val = best.match_status if best else 'no_match' %}
+              <td id="best-status-{{ row_id }}">
+                <span class="badge badge-{{ status_val }}">{{ status_val }}</span>
+              </td>
+            {% endif %}
+            <td>
+              {% if row.matches %}
+                <button
+                  class="toggle-btn"
+                  onclick="togglePanel('panel-{{ row_id }}', this)"
+                  aria-expanded="false"
+                  aria-controls="panel-{{ row_id }}"
+                >
+                  {{ row.matches | length }} options
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                       stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <polyline points="2,4 6,8 10,4"/>
+                  </svg>
+                </button>
+                <div class="candidates-panel" id="panel-{{ row_id }}">
+                  {% for m in row.matches %}
+                    {% if m.score_pct >= threshold_hi %}
+                      {% set card_sc = 'score-strong' %}
+                    {% elif m.score_pct >= threshold_lo %}
+                      {% set card_sc = 'score-partial' %}
+                    {% else %}
+                      {% set card_sc = 'score-fail' %}
+                    {% endif %}
+                    <label
+                      class="candidate-card{% if loop.first %} selected{% endif %}"
+                      onclick="selectCard(this, 'group-{{ row_id }}')"
+                    >
+                      <input
+                        type="radio"
+                        name="group-{{ row_id }}"
+                        value="{{ m.product_id }}"
+                        data-name="{{ m.product_name | e }}"
+                        data-score="{{ '%.1f' % m.score_pct }}"
+                        {% if loop.first %}checked{% endif %}
+                      />
+                      <span class="candidate-name">{{ m.product_name }}</span>
+                      <span class="candidate-score {{ card_sc }}">{{ '%.1f' % m.score_pct }}%</span>
+                    </label>
+                  {% endfor %}
+                  <button
+                    class="confirm-btn"
+                    onclick="confirmMatch(
+                      '{{ (row.get('items') or row.get('description') or '') | e }}',
+                      'group-{{ row_id }}',
+                      'best-name-{{ row_id }}',
+                      'best-score-{{ row_id }}',
+                      'best-status-{{ row_id }}',
+                      'toast-{{ row_id }}'
+                    )"
+                  >Confirm selection</button>
+                  <div class="confirm-toast" id="toast-{{ row_id }}">✓ Match confirmed</div>
+                </div>
+              {% else %}
+                <span style="color:var(--color-text-faint)">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+
+<div class="back-row">
+  <a href="/" class="btn btn-ghost">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <path d="M19 12H5M12 19l-7-7 7-7"/>
+    </svg>
+    New upload
+  </a>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+lucide.createIcons();
+
+const API_BASE = {{ api_base | tojson }};
+
+function togglePanel(panelId, btn) {
+  const panel = document.getElementById(panelId);
+  const open  = panel.classList.toggle('open');
+  btn.classList.toggle('open', open);
+  btn.setAttribute('aria-expanded', String(open));
+}
+
+function selectCard(label, groupName) {
+  document.querySelectorAll(`label.candidate-card`).forEach(el => {
+    if (el.querySelector(`input[name="${groupName}"]`)) el.classList.remove('selected');
+  });
+  label.classList.add('selected');
+  label.querySelector('input').checked = true;
+}
+
+function confirmMatch(rawQuery, groupName, nameId, scoreId, statusId, toastId) {
+  const checked = document.querySelector(`input[name="${groupName}"]:checked`);
+  if (!checked) return;
+
+  const productId   = parseInt(checked.value, 10);
+  const productName = checked.dataset.name;
+  const score       = checked.dataset.score;
+
+  document.getElementById(nameId).textContent  = productName;
+  const scoreEl = document.getElementById(scoreId);
+  if (scoreEl) { scoreEl.textContent = score + '%'; scoreEl.className = 'score score-strong'; }
+
+  const statusEl = document.getElementById(statusId);
+  if (statusEl) statusEl.innerHTML = '<span class="badge badge-confident">confirmed</span>';
+
+  const toast = document.getElementById(toastId);
+  if (toast) toast.style.display = 'block';
+
+  if (rawQuery && productId) {
+    fetch(API_BASE + '/api/v1/confirm_match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw_query: rawQuery, product_id: productId }),
+    }).catch(() => {});
+  }
+}
+</script>
+{% endblock %}
