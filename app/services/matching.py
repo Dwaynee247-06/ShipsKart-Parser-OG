@@ -133,21 +133,12 @@ class ProductMatcher:
         if not query_combined:
             return {"status": "no_match", "best": None, "candidates": []}
 
-        # Exact match short-circuit
-        for i, name in enumerate(self.norm_names):
-            if query_combined == name:
-                prod = self.products[i]
-                return {
-                    "status": "confident",
-                    "best": {"product": prod, "score": 100.0},
-                    "candidates": [{"product": prod, "score": 100.0}],
-                }
+        # NOTE: No exact-match short-circuit here — we always run the full
+        # scoring loop so that top_n candidates are always returned, even
+        # when the best match is a 100% hit.
 
-        # Inverted-index pre-filter
-        # FIX: fall back to ALL products when pre-filter returns fewer
-        # candidates than top_n — otherwise items with a near-exact match
-        # in the catalogue (e.g. "Chicken Dressed Broiler") only get 1
-        # candidate returned instead of the requested top_n.
+        # Inverted-index pre-filter — always fall back to full catalogue
+        # when the pre-filter returns fewer candidates than top_n.
         if self.use_inverted_index and self.inverted_index is not None:
             candidate_indices = self._get_candidate_indices(query_combined)
             if len(candidate_indices) < top_n:
@@ -167,6 +158,9 @@ class ProductMatcher:
             score = self._combined_score(
                 query_combined, prod_name, idx, query_tfidf_vec
             )
+            # Clamp exact-match products to 100.0
+            if query_combined == prod_name:
+                score = 100.0
             scored.append((prod, score))
 
         scored.sort(key=lambda x: x[1], reverse=True)
