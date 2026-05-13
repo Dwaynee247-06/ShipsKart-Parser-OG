@@ -11,16 +11,12 @@ from sklearn.metrics.pairwise import cosine_similarity
 import jellyfish
 
 
-# Issue 15: renamed from Product -> MatcherProduct directly in this file
-# so matcher.py needs no import alias at all.
 @dataclass
 class MatcherProduct:
     id: int
     name: str
 
 
-# Issue 14: normalize() lives here only.
-# matcher.py's duplicate _normalize() is removed there.
 def normalize(text: str) -> str:
     if not text:
         return ""
@@ -74,13 +70,10 @@ class ProductMatcher:
         self.use_inverted_index = use_inverted_index
         self.use_phonetic = use_phonetic
 
-        # Issue 6: build norm_names without duplicating alias tokens that are
-        # already present in the base name, keeping the combined string clean.
         self.norm_names: List[str] = []
         for p in products:
             base = normalize(p.name)
             alias = resolve_alias(p.name, self.alias_map)
-            # only append alias portion if it adds new tokens
             base_tokens = set(base.split())
             alias_extra = " ".join(
                 tok for tok in alias.split() if tok not in base_tokens
@@ -140,7 +133,7 @@ class ProductMatcher:
         if not query_combined:
             return {"status": "no_match", "best": None, "candidates": []}
 
-        # Exact match
+        # Exact match short-circuit
         for i, name in enumerate(self.norm_names):
             if query_combined == name:
                 prod = self.products[i]
@@ -150,16 +143,19 @@ class ProductMatcher:
                     "candidates": [{"product": prod, "score": 100.0}],
                 }
 
-        # Inverted-index pre-filter; fall back to all products on zero results
-        # so heavy typos (sharing no clean words) still get scored.
+        # Inverted-index pre-filter
+        # FIX: fall back to ALL products when pre-filter returns fewer
+        # candidates than top_n — otherwise items with a near-exact match
+        # in the catalogue (e.g. "Chicken Dressed Broiler") only get 1
+        # candidate returned instead of the requested top_n.
         if self.use_inverted_index and self.inverted_index is not None:
             candidate_indices = self._get_candidate_indices(query_combined)
-            if not candidate_indices:
+            if len(candidate_indices) < top_n:
                 candidate_indices = list(range(len(self.products)))
         else:
             candidate_indices = list(range(len(self.products)))
 
-        # Issue 8: transform query vector ONCE outside the per-product loop.
+        # Pre-compute query TF-IDF vector once outside the loop
         query_tfidf_vec = None
         if self.use_tfidf and self.vectorizer is not None:
             query_tfidf_vec = self.vectorizer.transform([query_combined])
@@ -210,7 +206,7 @@ class ProductMatcher:
         query: str,
         candidate: str,
         idx: int,
-        query_tfidf_vec=None,  # Issue 8: pre-computed outside loop
+        query_tfidf_vec=None,
     ) -> float:
         is_short = len(query.split()) <= 2
 
@@ -240,7 +236,6 @@ class ProductMatcher:
                 + 0.20 * phonetic_score
             )
 
-        # Issue 8: use the pre-computed query vector passed in
         if (
             self.use_tfidf
             and query_tfidf_vec is not None
