@@ -7,6 +7,8 @@ POST /upload  → parse & match, renders results.html
 """
 from __future__ import annotations
 
+from typing import List
+
 import httpx
 from fastapi import APIRouter, Form, Request, UploadFile, File
 from fastapi.responses import HTMLResponse
@@ -17,6 +19,14 @@ router = APIRouter(tags=["UI"])
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+# Layer number → API param name mapping
+_LAYER_MAP = {
+    "1": "use_levenshtein",
+    "2": "use_tfidf",
+    "3": "use_inverted_index",
+    "4": "use_phonetic",
+}
 
 # ── helpers ──────────────────────────────────────────────────────────────
 
@@ -40,26 +50,23 @@ async def upload(
     file: UploadFile = File(...),
     top_n: int = Form(5),
     advanced: str = Form("off"),
-    use_lev: str = Form("off"),
-    use_tfidf: str = Form("off"),
-    use_inv: str = Form("off"),
-    use_phonetic: str = Form("off"),
+    layers: List[str] = Form(default=[]),
 ):
-    adv      = advanced == "on"
-    lev      = use_lev == "on"
-    tfidf    = use_tfidf == "on"
-    inv      = use_inv == "on"
-    phonetic = use_phonetic == "on"
+    adv = advanced == "on"
+
+    # Build the layers query params for the API
+    # Each selected layer number maps to a named bool param
+    active_layers = [int(l) for l in layers if l in _LAYER_MAP]
 
     api_base = _api_base(request)
-    params = {
-        "advanced":           str(adv).lower(),
-        "use_levenshtein":    str(lev).lower(),
-        "use_tfidf":          str(tfidf).lower(),
-        "use_inverted_index": str(inv).lower(),
-        "use_phonetic":       str(phonetic).lower(),
-        "top_n":              top_n,
-    }
+
+    # Build query params: advanced + top_n + layers as repeated integers
+    params: list = [
+        ("advanced", str(adv).lower()),
+        ("top_n", top_n),
+    ]
+    for layer_num in active_layers:
+        params.append(("layers", layer_num))
 
     file_bytes = await file.read()
     try:
@@ -82,13 +89,10 @@ async def upload(
         request=request,
         name="results.html",
         context={
-            "response":   data,
-            "api_base":   api_base,
-            "top_n":      top_n,
-            "advanced":   adv,
-            "use_lev":    lev,
-            "use_tfidf":  tfidf,
-            "use_inv":    inv,
-            "use_phonetic": phonetic,
+            "response":      data,
+            "api_base":      api_base,
+            "top_n":         top_n,
+            "advanced":      adv,
+            "active_layers": active_layers,
         },
     )

@@ -110,25 +110,45 @@
     text-transform: uppercase; letter-spacing: 0.04em;
     margin-bottom: var(--space-3);
   }
+
+  /* Enumerated layer pills */
   .layer-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
     gap: var(--space-2);
   }
-  .layer-item {
-    display: flex; align-items: flex-start; gap: var(--space-2);
+  .layer-pill {
+    display: flex; align-items: center; gap: var(--space-3);
     padding: var(--space-2) var(--space-3);
     border: 1px solid var(--color-border); border-radius: var(--radius-md);
     background: var(--color-bg); cursor: pointer;
-    transition: border-color var(--transition), background var(--transition);
+    transition: border-color 180ms ease, background 180ms ease;
+    user-select: none;
   }
-  .layer-item:has(input:checked) {
-    border-color: var(--color-primary-hl);
-    background: color-mix(in oklch, var(--color-primary) 6%, var(--color-bg));
+  .layer-pill:has(input:checked) {
+    border-color: var(--color-primary);
+    background: color-mix(in oklch, var(--color-primary) 7%, var(--color-bg));
   }
-  .layer-item input[type=checkbox] { accent-color: var(--color-primary); width: 15px; height: 15px; margin-top: 2px; }
-  .layer-item-text { font-size: var(--text-xs); font-weight: 600; }
-  .layer-item-sub { font-size: 0.7rem; color: var(--color-text-muted); margin-top: 1px; }
-  .layer-item-header { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+  .layer-pill input[type=checkbox] { display: none; }
+
+  /* Number badge */
+  .layer-num {
+    width: 26px; height: 26px;
+    border-radius: var(--radius-full);
+    background: var(--color-surface-offset);
+    color: var(--color-text-muted);
+    font-size: var(--text-xs); font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: background 180ms ease, color 180ms ease;
+  }
+  .layer-pill:has(input:checked) .layer-num {
+    background: var(--color-primary);
+    color: #fff;
+  }
+  .layer-pill-body { flex: 1; min-width: 0; }
+  .layer-pill-name { font-size: var(--text-xs); font-weight: 600; display: flex; align-items: center; gap: var(--space-2); }
+  .layer-pill-sub  { font-size: 0.7rem; color: var(--color-text-muted); margin-top: 1px; }
 </style>
 {% endblock %}
 
@@ -195,53 +215,66 @@
                    onchange="document.getElementById('advPanel').classList.toggle('open', this.checked)" />
             <span class="toggle-pill"></span>
             <span class="toggle-label">Advanced matcher</span>
-            <span class="toggle-desc">Levenshtein · Phonetic · TF-IDF · Inverted index</span>
+            <span class="toggle-desc">Layers 1 · 2 · 3 · 4</span>
             <span class="badge-rec">&#10003; Recommended</span>
           </label>
 
           <div class="adv-panel" id="advPanel">
             <p class="adv-panel-title">Active layers — keep all ON for best accuracy</p>
             <div class="layer-grid">
-              <label class="layer-item">
-                <input type="checkbox" name="use_lev" checked />
-                <div>
-                  <div class="layer-item-header">
-                    <span class="layer-item-text">Levenshtein</span>
+
+              <!-- Layer 1 -->
+              <label class="layer-pill">
+                <input type="checkbox" name="layers" value="1" checked />
+                <span class="layer-num">1</span>
+                <div class="layer-pill-body">
+                  <div class="layer-pill-name">
+                    Levenshtein
                     <span class="badge-rec">Keep ON</span>
                   </div>
-                  <div class="layer-item-sub">Character-level typos</div>
+                  <div class="layer-pill-sub">Character-level typos</div>
                 </div>
               </label>
-              <label class="layer-item">
-                <input type="checkbox" name="use_tfidf" checked />
-                <div>
-                  <div class="layer-item-header">
-                    <span class="layer-item-text">TF-IDF</span>
+
+              <!-- Layer 2 -->
+              <label class="layer-pill">
+                <input type="checkbox" name="layers" value="2" checked />
+                <span class="layer-num">2</span>
+                <div class="layer-pill-body">
+                  <div class="layer-pill-name">
+                    TF-IDF
                     <span class="badge-rec">Keep ON</span>
                   </div>
-                  <div class="layer-item-sub">Char n-gram similarity</div>
+                  <div class="layer-pill-sub">Char n-gram similarity</div>
                 </div>
               </label>
-              <label class="layer-item">
-                <input type="checkbox" name="use_inv" checked />
-                <div>
-                  <div class="layer-item-header">
-                    <span class="layer-item-text">Inverted index</span>
+
+              <!-- Layer 3 -->
+              <label class="layer-pill">
+                <input type="checkbox" name="layers" value="3" checked />
+                <span class="layer-num">3</span>
+                <div class="layer-pill-body">
+                  <div class="layer-pill-name">
+                    Inverted Index
                     <span class="badge-rec">Keep ON</span>
                   </div>
-                  <div class="layer-item-sub">Fast token prefilter</div>
+                  <div class="layer-pill-sub">Fast token prefilter</div>
                 </div>
               </label>
-              <label class="layer-item">
-                <input type="checkbox" name="use_phonetic" checked />
-                <div>
-                  <div class="layer-item-header">
-                    <span class="layer-item-text">Phonetic (Soundex)</span>
+
+              <!-- Layer 4 -->
+              <label class="layer-pill">
+                <input type="checkbox" name="layers" value="4" checked />
+                <span class="layer-num">4</span>
+                <div class="layer-pill-body">
+                  <div class="layer-pill-name">
+                    Phonetic
                     <span class="badge-rec">Keep ON</span>
                   </div>
-                  <div class="layer-item-sub">Sounds-alike matching</div>
+                  <div class="layer-pill-sub">Sounds-alike (Soundex)</div>
                 </div>
               </label>
+
             </div>
           </div>
         </div>

@@ -11,7 +11,9 @@ Supported file types: .xlsx, .xlsm, .xltx, .xltm, .docx, .doc, .pdf
 """
 from __future__ import annotations
 
+from enum import IntEnum
 from pathlib import Path
+from typing import List
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
@@ -25,13 +27,38 @@ from app.services.parsers import dispatch_parser
 router = APIRouter(tags=["Parse"])
 
 
+class MatcherLayer(IntEnum):
+    """Enumerated matcher layers.
+
+    Pass one or more of these integers via the ``layers`` query parameter.
+    When ``advanced=true`` and no ``layers`` values are supplied, all four
+    layers are enabled by default.
+
+    - **1** — Levenshtein   (character-level typo correction)
+    - **2** — TF-IDF        (character n-gram cosine similarity)
+    - **3** — InvertedIndex (fast token pre-filter)
+    - **4** — Phonetic      (Soundex sounds-alike matching)
+    """
+    Levenshtein   = 1
+    TF_IDF        = 2
+    InvertedIndex = 3
+    Phonetic      = 4
+
+
 @router.post(
     "/parse/match",
     summary="Upload a file, parse it, and match every item against the Product DB",
     description=(
         "Upload an Excel, Word, or PDF document. "
         "Every line item is parsed and matched against the Product master database. "
-        "Returns the structured rows **plus** the top-N matches (with score %) for each item."
+        "Returns the structured rows **plus** the top-N matches (with score %) for each item.\n\n"
+        "**Matcher layers** (used only when `advanced=true`):\n"
+        "- `1` = Levenshtein (typo correction)\n"
+        "- `2` = TF-IDF (n-gram similarity)\n"
+        "- `3` = InvertedIndex (speed pre-filter)\n"
+        "- `4` = Phonetic / Soundex\n\n"
+        "Pass multiple values: `layers=1&layers=2&layers=3&layers=4`. "
+        "Omitting `layers` when advanced is true enables all four."
     ),
 )
 async def parse_and_match(
@@ -43,21 +70,17 @@ async def parse_and_match(
     advanced: bool = Query(
         False,
         description=(
-            "Enable advanced matching (layers 4–6: Levenshtein, TF-IDF, inverted index). "
-            "When False, uses the legacy alias + fuzzy matching only."
+            "Enable advanced matching. When False, uses legacy alias + fuzzy matching only."
         ),
     ),
-    use_levenshtein: bool = Query(
-        True,
-        description="When advanced=True, toggle Levenshtein-based typo handling (Layer 4).",
-    ),
-    use_tfidf: bool = Query(
-        True,
-        description="When advanced=True, toggle TF-IDF character n-gram matching (Layer 5).",
-    ),
-    use_inverted_index: bool = Query(
-        True,
-        description="When advanced=True, toggle inverted-index prefilter for performance (Layer 6).",
+    layers: List[MatcherLayer] = Query(
+        default=[MatcherLayer.Levenshtein, MatcherLayer.TF_IDF,
+                 MatcherLayer.InvertedIndex, MatcherLayer.Phonetic],
+        description=(
+            "Which advanced layers to activate (integers). "
+            "1=Levenshtein, 2=TF-IDF, 3=InvertedIndex, 4=Phonetic. "
+            "Only used when advanced=true."
+        ),
     ),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -103,6 +126,12 @@ async def parse_and_match(
     if Path(file.filename).suffix.lower() not in settings.allowed_extensions:
         raise UnsupportedFileTypeError()
 
+    layer_set = set(layers)
+    use_levenshtein   = MatcherLayer.Levenshtein   in layer_set
+    use_tfidf         = MatcherLayer.TF_IDF        in layer_set
+    use_inverted_index= MatcherLayer.InvertedIndex in layer_set
+    use_phonetic      = MatcherLayer.Phonetic      in layer_set
+
     try:
         file_bytes = await file.read()
         parsed = dispatch_parser(file_bytes, Path(file.filename).suffix.lower())
@@ -120,6 +149,7 @@ async def parse_and_match(
             use_levenshtein=use_levenshtein,
             use_tfidf=use_tfidf,
             use_inverted_index=use_inverted_index,
+            use_phonetic=use_phonetic,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Matching failed: {exc}") from exc
