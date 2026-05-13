@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import httpx
 from fastapi import APIRouter, Form, Request, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
@@ -29,7 +29,9 @@ def _api_base(request: Request) -> str:
 
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(
+        request=request, name="index.html"
+    )
 
 
 @router.post("/upload", response_class=HTMLResponse)
@@ -71,17 +73,15 @@ async def upload(
             data = resp.json()
     except httpx.HTTPError as exc:
         return templates.TemplateResponse(
-            "index.html",
-            {
-                "request": request,
-                "error": f"API error: {exc}",
-            },
+            request=request,
+            name="index.html",
+            context={"error": f"API error: {exc}"},
         )
 
     return templates.TemplateResponse(
-        "results.html",
-        {
-            "request":    request,
+        request=request,
+        name="results.html",
+        context={
             "response":   data,
             "api_base":   api_base,
             "top_n":      top_n,
