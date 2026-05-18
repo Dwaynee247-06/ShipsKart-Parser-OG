@@ -19,9 +19,9 @@
     margin-bottom: var(--space-6);
   }
   .form-section { display: flex; flex-direction: column; gap: var(--space-5); }
-  .form-group { display: flex; flex-direction: column; gap: var(--space-1); }
+  .form-group   { display: flex; flex-direction: column; gap: var(--space-1); }
 
-  /* File drop zone */
+  /* ── File drop ── */
   .file-drop {
     border: 2px dashed var(--color-border); border-radius: var(--radius-lg);
     background: var(--color-bg);
@@ -37,15 +37,12 @@
   .file-drop input[type=file] {
     position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
   }
-  .file-drop-icon { color: var(--color-primary); margin-inline: auto; margin-bottom: var(--space-3); }
+  .file-drop-icon  { color: var(--color-primary); margin-inline: auto; margin-bottom: var(--space-3); }
   .file-drop-title { font-weight: 600; font-size: var(--text-sm); margin-bottom: var(--space-1); }
-  .file-drop-sub { font-size: var(--text-xs); color: var(--color-text-muted); }
-  .file-name {
-    margin-top: var(--space-2); font-size: var(--text-xs);
-    color: var(--color-primary); font-weight: 600; display: none;
-  }
+  .file-drop-sub   { font-size: var(--text-xs); color: var(--color-text-muted); }
+  .file-name       { margin-top: var(--space-2); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; display: none; }
 
-  /* Divider */
+  /* ── Divider ── */
   .form-divider {
     display: flex; align-items: center; gap: var(--space-3);
     color: var(--color-text-faint); font-size: var(--text-xs);
@@ -54,31 +51,28 @@
     content: ''; flex: 1; height: 1px; background: var(--color-divider);
   }
 
-  /* Number input row */
+  /* ── Inline field (Top N) ── */
   .inline-field { display: flex; align-items: center; gap: var(--space-3); }
   .inline-field .form-input { width: 80px; text-align: center; }
   .inline-field .field-desc { font-size: var(--text-xs); color: var(--color-text-muted); flex: 1; }
 
-  /* Recommended badge */
+  /* ── Badges ── */
   .badge-rec {
-    display: inline-flex; align-items: center; gap: 3px;
+    display: inline-flex; align-items: center;
     font-size: 0.65rem; font-weight: 700; line-height: 1;
     text-transform: uppercase; letter-spacing: 0.05em;
     padding: 2px 7px; border-radius: var(--radius-full);
     background: color-mix(in oklch, var(--color-primary) 14%, var(--color-bg));
-    color: var(--color-primary);
-    flex-shrink: 0;
+    color: var(--color-primary); flex-shrink: 0;
   }
 
-  /* Advanced toggle */
+  /* ── Advanced toggle row ── */
   .toggle-row {
     display: flex; align-items: center; gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border); border-radius: var(--radius-md);
     background: var(--color-surface-2);
-    cursor: pointer;
-    user-select: none;
+    cursor: pointer; user-select: none;
   }
   .toggle-row input[type=checkbox] { display: none; }
   .toggle-pill {
@@ -91,17 +85,16 @@
     width: 16px; height: 16px; border-radius: var(--radius-full);
     background: white; transition: transform var(--transition);
   }
-  .toggle-row:has(input:checked) .toggle-pill { background: var(--color-primary); }
-  .toggle-row:has(input:checked) .toggle-pill::after { transform: translateX(16px); }
+  .toggle-row:has(input:checked) .toggle-pill            { background: var(--color-primary); }
+  .toggle-row:has(input:checked) .toggle-pill::after     { transform: translateX(16px); }
   .toggle-label { font-size: var(--text-sm); font-weight: 600; }
-  .toggle-desc { font-size: var(--text-xs); color: var(--color-text-muted); flex: 1; }
+  .toggle-desc  { font-size: var(--text-xs); color: var(--color-text-muted); flex: 1; }
 
-  /* Advanced layers panel */
+  /* ── Advanced panel ── */
   .adv-panel {
     display: none; margin-top: var(--space-2);
     padding: var(--space-4);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border); border-radius: var(--radius-md);
     background: var(--color-surface);
   }
   .adv-panel.open { display: block; }
@@ -111,44 +104,54 @@
     margin-bottom: var(--space-3);
   }
 
-  /* Enumerated layer pills */
-  .layer-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-    gap: var(--space-2);
+  /* ── Layer chips (number-only, horizontal strip) ── */
+  .layer-strip {
+    display: flex; flex-wrap: wrap; gap: var(--space-2);
   }
-  .layer-pill {
-    display: flex; align-items: center; gap: var(--space-3);
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--color-border); border-radius: var(--radius-md);
-    background: var(--color-bg); cursor: pointer;
-    transition: border-color 180ms ease, background 180ms ease;
-    user-select: none;
+  /* Hidden real checkbox */
+  .layer-chip input[type=checkbox] { display: none; }
+  /* The visible chip */
+  .layer-chip-inner {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    width: 72px; padding: var(--space-3) var(--space-2);
+    border: 1.5px solid var(--color-border); border-radius: var(--radius-md);
+    background: var(--color-bg);
+    cursor: pointer; user-select: none;
+    transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+    gap: var(--space-1);
   }
-  .layer-pill:has(input:checked) {
+  .layer-chip-inner:hover {
     border-color: var(--color-primary);
-    background: color-mix(in oklch, var(--color-primary) 7%, var(--color-bg));
+    background: color-mix(in oklch, var(--color-primary) 5%, var(--color-bg));
   }
-  .layer-pill input[type=checkbox] { display: none; }
-
-  /* Number badge */
-  .layer-num {
-    width: 26px; height: 26px;
-    border-radius: var(--radius-full);
+  /* Number circle */
+  .chip-num {
+    width: 32px; height: 32px; border-radius: var(--radius-full);
     background: var(--color-surface-offset);
     color: var(--color-text-muted);
-    font-size: var(--text-xs); font-weight: 700;
+    font-size: var(--text-sm); font-weight: 800;
     display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
     transition: background 180ms ease, color 180ms ease;
   }
-  .layer-pill:has(input:checked) .layer-num {
+  /* Recommended label below number */
+  .chip-label {
+    font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--color-text-faint);
+    transition: color 180ms ease;
+  }
+  /* Checked state */
+  .layer-chip:has(input:checked) .layer-chip-inner {
+    border-color: var(--color-primary);
+    background: color-mix(in oklch, var(--color-primary) 8%, var(--color-bg));
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-primary) 18%, transparent);
+  }
+  .layer-chip:has(input:checked) .chip-num {
     background: var(--color-primary);
     color: #fff;
   }
-  .layer-pill-body { flex: 1; min-width: 0; }
-  .layer-pill-name { font-size: var(--text-xs); font-weight: 600; display: flex; align-items: center; gap: var(--space-2); }
-  .layer-pill-sub  { font-size: 0.7rem; color: var(--color-text-muted); margin-top: 1px; }
+  .layer-chip:has(input:checked) .chip-label {
+    color: var(--color-primary);
+  }
 </style>
 {% endblock %}
 
@@ -203,7 +206,7 @@
           <div class="inline-field">
             <input class="form-input" type="number" name="top_n" id="topN"
                    value="5" min="1" max="20" />
-            <span class="field-desc">How many candidate matches to return per row</span>
+            <span class="field-desc">How many candidates to return per row</span>
             <span class="badge-rec">&#10003; 5 recommended</span>
           </div>
         </div>
@@ -220,58 +223,41 @@
           </label>
 
           <div class="adv-panel" id="advPanel">
-            <p class="adv-panel-title">Active layers — keep all ON for best accuracy</p>
-            <div class="layer-grid">
+            <p class="adv-panel-title">Select layers &mdash; all recommended</p>
 
-              <!-- Layer 1 -->
-              <label class="layer-pill">
+            <!-- Number-only chips — names are intentionally hidden in the UI.
+                 The backend maps: 1=Levenshtein, 2=TF-IDF, 3=InvertedIndex, 4=Phonetic -->
+            <div class="layer-strip">
+
+              <label class="layer-chip">
                 <input type="checkbox" name="layers" value="1" checked />
-                <span class="layer-num">1</span>
-                <div class="layer-pill-body">
-                  <div class="layer-pill-name">
-                    Levenshtein
-                    <span class="badge-rec">Keep ON</span>
-                  </div>
-                  <div class="layer-pill-sub">Character-level typos</div>
+                <div class="layer-chip-inner">
+                  <span class="chip-num">1</span>
+                  <span class="chip-label">Rec.</span>
                 </div>
               </label>
 
-              <!-- Layer 2 -->
-              <label class="layer-pill">
+              <label class="layer-chip">
                 <input type="checkbox" name="layers" value="2" checked />
-                <span class="layer-num">2</span>
-                <div class="layer-pill-body">
-                  <div class="layer-pill-name">
-                    TF-IDF
-                    <span class="badge-rec">Keep ON</span>
-                  </div>
-                  <div class="layer-pill-sub">Char n-gram similarity</div>
+                <div class="layer-chip-inner">
+                  <span class="chip-num">2</span>
+                  <span class="chip-label">Rec.</span>
                 </div>
               </label>
 
-              <!-- Layer 3 -->
-              <label class="layer-pill">
+              <label class="layer-chip">
                 <input type="checkbox" name="layers" value="3" checked />
-                <span class="layer-num">3</span>
-                <div class="layer-pill-body">
-                  <div class="layer-pill-name">
-                    Inverted Index
-                    <span class="badge-rec">Keep ON</span>
-                  </div>
-                  <div class="layer-pill-sub">Fast token prefilter</div>
+                <div class="layer-chip-inner">
+                  <span class="chip-num">3</span>
+                  <span class="chip-label">Rec.</span>
                 </div>
               </label>
 
-              <!-- Layer 4 -->
-              <label class="layer-pill">
+              <label class="layer-chip">
                 <input type="checkbox" name="layers" value="4" checked />
-                <span class="layer-num">4</span>
-                <div class="layer-pill-body">
-                  <div class="layer-pill-name">
-                    Phonetic
-                    <span class="badge-rec">Keep ON</span>
-                  </div>
-                  <div class="layer-pill-sub">Sounds-alike (Soundex)</div>
+                <div class="layer-chip-inner">
+                  <span class="chip-num">4</span>
+                  <span class="chip-label">Rec.</span>
                 </div>
               </label>
 
@@ -306,8 +292,8 @@
     }
   });
 
-  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag-over'); });
-  drop.addEventListener('dragleave', () => drop.classList.remove('drag-over'));
+  drop.addEventListener('dragover',  e => { e.preventDefault(); drop.classList.add('drag-over'); });
+  drop.addEventListener('dragleave', ()  => drop.classList.remove('drag-over'));
   drop.addEventListener('drop', e => {
     e.preventDefault();
     drop.classList.remove('drag-over');
